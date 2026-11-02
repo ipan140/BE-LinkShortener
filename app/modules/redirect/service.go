@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -13,6 +14,7 @@ import (
 
 type Service interface {
 	Resolve(ctx context.Context, shortCode string, incomingQuery string, password string, click *ClickData) (string, bool, error)
+	GetLinkDetails(ctx context.Context, shortCode string) (*RedirectLink, error)
 }
 
 type service struct {
@@ -27,10 +29,10 @@ func NewService(repo Repository, cache RedisCache) Service {
 	}
 }
 
-// Resolve handles resolution with UTM query forwarding, password checks, and click limits.
+// Resolve handles resolution with Smart Device Routing, UTM forwarding, password checks, and click limits.
 // Returns (destinationURL, requiresPassword, error)
 func (s *service) Resolve(ctx context.Context, shortCode string, incomingQuery string, password string, click *ClickData) (string, bool, error) {
-	// 1. Fast Path: Check Redis Cache (Ultra-Fast < 1ms for non-protected links)
+	// 1. Fast Path: Check Redis Cache (Ultra-Fast < 1ms for non-protected, non-device-routed links)
 	cachedURL, err := s.cache.GetRedirectURL(ctx, shortCode)
 	if err == nil && cachedURL != "" {
 		finalURL := mergeQueryParams(cachedURL, incomingQuery)
@@ -45,9 +47,9 @@ func (s *service) Resolve(ctx context.Context, shortCode string, incomingQuery s
 		return finalURL, false, nil
 	}
 
-	// 2. Slow Path: Cache Miss / Protected Link - Query Database
+	// 2. Slow Path: Cache Miss / Protected Link / Dynamic Device Routing - Query Database
 	if err != nil && !errors.Is(err, redis.Nil) {
-		// Log Redis connection error, continue to DB fallback
+		// Redis error, proceed to DB fallback
 	}
 
 	link, err := s.repo.FindActiveLink(ctx, shortCode)
@@ -76,7 +78,6 @@ func (s *service) Resolve(ctx context.Context, shortCode string, incomingQuery s
 	// Check password protection
 	if link.IsProtected {
 		if password == "" {
-			// Signal that password is required
 			return "", true, nil
 		}
 
@@ -85,20 +86,34 @@ func (s *service) Resolve(ctx context.Context, shortCode string, incomingQuery s
 		}
 	}
 
-	// 3. Warm the Redis Cache if not protected and not near limit
-	if !link.IsProtected && link.MaxClicks == nil {
+	// 3. Smart Device Routing (iOS / Android / Default)
+	chosenDestination := link.OriginalURL
+	osLower := strings.ToLower(click.OS)
+	if (strings.Contains(osLower, "ios") || strings.Contains(osLower, "ipad")) && link.IOSURL != "" {
+		chosenDestination = link.IOSURL
+	} else if strings.Contains(osLower, "android") && link.AndroidURL != "" {
+		chosenDestination = link.AndroidURL
+	}
+
+	// 4. Warm the Redis Cache ONLY if the link is purely static and unconstrained
+	canCache := !link.IsProtected && link.MaxClicks == nil && link.IOSURL == "" && link.AndroidURL == ""
+	if canCache {
 		_ = s.cache.SetRedirectCache(ctx, shortCode, link.OriginalURL, 24*time.Hour)
 	}
 
-	// 4. Asynchronously enqueue click event
+	// 5. Asynchronously enqueue click event
 	go func(c ClickData) {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		_ = s.cache.EnqueueClick(bgCtx, &c)
 	}(*click)
 
-	finalURL := mergeQueryParams(link.OriginalURL, incomingQuery)
+	finalURL := mergeQueryParams(chosenDestination, incomingQuery)
 	return finalURL, false, nil
+}
+
+func (s *service) GetLinkDetails(ctx context.Context, shortCode string) (*RedirectLink, error) {
+	return s.repo.FindActiveLink(ctx, shortCode)
 }
 
 // mergeQueryParams forwards UTM tags and other query parameters to the destination URL

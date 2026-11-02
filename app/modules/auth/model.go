@@ -13,6 +13,7 @@ type User struct {
 	Password  string         `gorm:"type:varchar(255);not null" json:"-"`
 	Name      string         `gorm:"type:varchar(100);not null" json:"name"`
 	Role      string         `gorm:"type:varchar(20);default:'user'" json:"role"`
+	APIKey    string         `gorm:"type:varchar(64);uniqueIndex" json:"api_key"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
@@ -35,6 +36,7 @@ type LoginRequest struct {
 }
 
 type AuthResponse struct {
-	Token string `json:"token"`
-	User  User   `json:"user"`
+	Token  string `json:"token"`
+	APIKey string `json:"api_key"`
+	User   User   `json:"user"`
 }

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -12,10 +13,14 @@ import (
 )
 
 type JWTClaims struct {
-	UserID   uint   `json:"user_id"`
-	Email    string `json:"email"`
-	Role     string `json:"role"`
+	UserID uint   `json:"user_id"`
+	Email  string `json:"email"`
+	Role   string `json:"role"`
 	jwt.RegisteredClaims
+}
+
+type APIKeyValidator interface {
+	ValidateAPIKey(ctx context.Context, apiKey string) (any, error)
 }
 
 // GenerateToken creates a signed JWT token
@@ -34,13 +39,57 @@ func GenerateToken(userID uint, email, role, secret string, expireMinutes int) (
 	return token.SignedString([]byte(secret))
 }
 
-// JWTMiddleware validates the bearer token and injects claims into echo context
-func JWTMiddleware(secret string) echo.MiddlewareFunc {
+type UserWithDetails interface {
+	GetID() uint
+	GetEmail() string
+	GetRole() string
+}
+
+type KeyFinder interface {
+	ValidateAPIKey(ctx context.Context, key string) (uint, string, string, error)
+}
+
+// CombinedAuthMiddleware allows authentication using either 'X-API-Key' or 'Authorization: Bearer <token>'
+func CombinedAuthMiddleware(secret string, finder any) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			// 1. Check for X-API-Key header first
+			apiKey := strings.TrimSpace(c.Request().Header.Get("X-API-Key"))
+			if apiKey != "" {
+				if kf, ok := finder.(interface {
+					ValidateAPIKey(ctx context.Context, apiKey string) (any, error)
+				}); ok {
+					user, err := kf.ValidateAPIKey(c.Request().Context(), apiKey)
+					if err == nil && user != nil {
+						if u, ok := user.(interface {
+							GetAuthData() (uint, string, string)
+						}); ok {
+							uid, email, role := u.GetAuthData()
+							c.Set("user_id", uid)
+							c.Set("email", email)
+							c.Set("role", role)
+							return next(c)
+						}
+					}
+				}
+				// Also handle direct concrete struct via reflection or interface
+				if kf, ok := finder.(interface {
+					ValidateAPIKeyForAuth(ctx context.Context, apiKey string) (uint, string, string, error)
+				}); ok {
+					uid, email, role, err := kf.ValidateAPIKeyForAuth(c.Request().Context(), apiKey)
+					if err == nil {
+						c.Set("user_id", uid)
+						c.Set("email", email)
+						c.Set("role", role)
+						return next(c)
+					}
+				}
+			}
+
+			// 2. Fallback to JWT Bearer Token
 			authHeader := c.Request().Header.Get("Authorization")
 			if authHeader == "" {
-				return utils.JSONError(c, appErrors.Unauthorized("missing Authorization header"))
+				return utils.JSONError(c, appErrors.Unauthorized("missing Authorization header or X-API-Key"))
 			}
 
 			parts := strings.Split(authHeader, " ")
@@ -72,4 +121,9 @@ func JWTMiddleware(secret string) echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+// JWTMiddleware validates the bearer token and injects claims into echo context
+func JWTMiddleware(secret string) echo.MiddlewareFunc {
+	return CombinedAuthMiddleware(secret, nil)
 }

@@ -3,6 +3,7 @@ package link
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -11,7 +12,7 @@ type Repository interface {
 	Create(ctx context.Context, link *Link) error
 	FindByID(ctx context.Context, id uint) (*Link, error)
 	FindByShortCode(ctx context.Context, code string) (*Link, error)
-	ListByUserID(ctx context.Context, userID uint, page, limit int) ([]Link, int64, error)
+	ListByUserID(ctx context.Context, userID uint, tag string, page, limit int) ([]Link, int64, error)
 	Update(ctx context.Context, link *Link) error
 	Delete(ctx context.Context, id, userID uint) error
 	IncrementClickCount(ctx context.Context, linkID uint, delta int64) error
@@ -53,11 +54,16 @@ func (r *repository) FindByShortCode(ctx context.Context, code string) (*Link, e
 	return &link, nil
 }
 
-func (r *repository) ListByUserID(ctx context.Context, userID uint, page, limit int) ([]Link, int64, error) {
+func (r *repository) ListByUserID(ctx context.Context, userID uint, tag string, page, limit int) ([]Link, int64, error) {
 	var links []Link
 	var total int64
 
 	db := r.db.WithContext(ctx).Model(&Link{}).Where("user_id = ?", userID)
+
+	if tag != "" {
+		tagPattern := "%" + strings.TrimSpace(tag) + "%"
+		db = db.Where("tags ILIKE ? OR tags LIKE ?", tagPattern, tagPattern)
+	}
 
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err

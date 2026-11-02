@@ -2,13 +2,13 @@
   "openapi": "3.0.0",
   "info": {
     "title": "Ultra-Fast Redirector & Click Collector API",
-    "version": "1.1.0",
-    "description": "High-performance modular monolith for <10ms short link redirection with QR generator, UTM forwarder, password protection, max click limits, and Redis rate limiting."
+    "version": "1.2.0",
+    "description": "High-performance modular monolith for <10ms short link redirection with Smart Device Routing, QR generator, UTM forwarder, password protection, max click limits, CSV export, and Redis rate limiting."
   },
   "paths": {
     "/{code}": {
       "get": {
-        "summary": "Ultra-fast redirection (<10ms via Redis) with UTM query forwarding",
+        "summary": "Ultra-fast redirection (<10ms) with Smart Device Routing (iOS/Android) & UTM forwarding",
         "parameters": [
           {
             "name": "code",
@@ -43,9 +43,9 @@
         ]
       }
     },
-    "/api/v1/links/qr/{code}": {
+    "/qr/{code}": {
       "get": {
-        "summary": "Generate QR Code PNG image for short link",
+        "summary": "Public QR Code PNG generator",
         "parameters": [
           {
             "name": "code",
@@ -77,7 +77,7 @@
     },
     "/api/v1/links": {
       "post": {
-        "summary": "Create short link (Supports custom alias, password, max_clicks, expires_at)"
+        "summary": "Create short link (Supports custom alias, ios_url, android_url, password, max_clicks, expires_at)"
       },
       "get": {
         "summary": "List user's shortened links"
@@ -86,6 +86,11 @@
     "/api/v1/analytics/{code}": {
       "get": {
         "summary": "Get click statistics and visitor demographics"
+      }
+    },
+    "/api/v1/analytics/{code}/export.csv": {
+      "get": {
+        "summary": "Download raw click log telemetry as CSV file"
       }
     }
   }

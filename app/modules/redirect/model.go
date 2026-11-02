@@ -19,11 +19,16 @@ type ClickData struct {
 	ClickedAt   time.Time `json:"clicked_at"`
 }
 
-// RedirectLink is a lightweight model representation for redirect evaluation
+// RedirectLink is a lightweight model representation for redirect evaluation and OpenGraph previews
 type RedirectLink struct {
 	ID           uint
 	OriginalURL  string
+	IOSURL       string
+	AndroidURL   string
 	ShortCode    string
+	Title        string
+	Description  string
+	ImageURL     string
 	IsActive     bool
 	ExpiresAt    *time.Time
 	MaxClicks    *int64

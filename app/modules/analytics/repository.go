@@ -11,6 +11,7 @@ import (
 type Repository interface {
 	BatchInsertClicks(ctx context.Context, clicks []Click) error
 	GetSummary(ctx context.Context, shortCode string) (*AnalyticsSummary, error)
+	GetClicksForExport(ctx context.Context, shortCode string) ([]Click, error)
 }
 
 type repository struct {
@@ -119,7 +120,6 @@ func (r *repository) GetSummary(ctx context.Context, shortCode string) (*Analyti
 	// Recent 7 days timeline
 	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
 	var timeSeries []TimeSeriesItem
-	// SQLite / Postgres compatible date truncation
 	r.db.WithContext(ctx).Raw(`
 		SELECT DATE(clicked_at) as date, count(*) as count 
 		FROM clicks 
@@ -130,4 +130,18 @@ func (r *repository) GetSummary(ctx context.Context, shortCode string) (*Analyti
 	summary.RecentClicks = timeSeries
 
 	return summary, nil
+}
+
+// GetClicksForExport retrieves raw clicks for CSV export
+func (r *repository) GetClicksForExport(ctx context.Context, shortCode string) ([]Click, error) {
+	var clicks []Click
+	err := r.db.WithContext(ctx).
+		Where("short_code = ?", shortCode).
+		Order("clicked_at DESC").
+		Limit(10000). // Limit export to top 10,000 for safety
+		Find(&clicks).Error
+	if err != nil {
+		return nil, err
+	}
+	return clicks, nil
 }

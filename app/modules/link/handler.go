@@ -65,8 +65,9 @@ func (h *Handler) List(c echo.Context) error {
 
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
+	tag := c.QueryParam("tag")
 
-	links, total, err := h.service.ListLinks(c.Request().Context(), userID, page, limit)
+	links, total, err := h.service.ListLinks(c.Request().Context(), userID, tag, page, limit)
 	if err != nil {
 		return utils.JSONError(c, err)
 	}

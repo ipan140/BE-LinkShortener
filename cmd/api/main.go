@@ -46,8 +46,7 @@ func main() {
 	// 3. Initialize Redis Connection Pool
 	rdb, err := config.InitRedis(&cfg.Redis)
 	if err != nil {
-		log.Printf("[Bootstrap] Warning: Redis connection failed: %v. (Check REDIS_HOST/REDIS_PORT)", err)
-		log.Printf("[Bootstrap] Running with degraded cache capabilities.")
+		log.Printf("[Bootstrap] Info: Redis cache is disabled or not reachable. Running with direct DB fallback.")
 	}
 
 	// 4. Initialize Dependency Injections per Module (Clean Layered Architecture)
@@ -64,7 +63,7 @@ func main() {
 	linkCache := link.NewRedisCache(rdb)
 	linkService := link.NewService(linkRepo, linkCache, cfg)
 	linkHandler := link.NewHandler(linkService)
-	linkRoute := link.NewRoute(linkHandler, cfg.JWT.Secret)
+	linkRoute := link.NewRoute(linkHandler, cfg.JWT.Secret, authService)
 
 	// Module: Redirect (Ultra-Fast Redirector & Click Collector)
 	redirectRepo := redirect.NewRepository(db)
@@ -78,7 +77,7 @@ func main() {
 	analyticsQueue := analytics.NewRedisQueue(rdb, cfg.Redis.QueueKey)
 	analyticsService := analytics.NewService(analyticsRepo, analyticsQueue, cfg)
 	analyticsHandler := analytics.NewHandler(analyticsService)
-	analyticsRoute := analytics.NewRoute(analyticsHandler, cfg.JWT.Secret)
+	analyticsRoute := analytics.NewRoute(analyticsHandler, cfg.JWT.Secret, authService)
 
 	// 5. Start Background Workers
 	ctx, cancel := context.WithCancel(context.Background())
@@ -107,21 +106,22 @@ func main() {
 	// Register Swagger / OpenAPI Docs
 	docs.RegisterDocsEndpoint(e)
 
-	// Register Redirect Routes with Anti-Abuse Rate Limiter (e.g., max 120 redirects per 10s per IP)
+	// Public QR code endpoint
+	e.GET("/qr/:code", linkHandler.QRCode)
+
+	// Register Redirect Routes with Anti-Abuse Rate Limiter (max 120 redirects per 10s per IP)
+	redirectGroup := e.Group("")
 	if rdb != nil {
 		redirectLimiter := middleware.RedisRateLimiter(rdb, middleware.RateLimiterConfig{
 			Limit:  120,
 			Window: 10 * time.Second,
 			Prefix: "redirect",
 		})
-		e.Group("", redirectLimiter)
+		redirectGroup.Use(redirectLimiter)
 	}
-	redirectRoute.RegisterRoutes(e)
+	redirectRoute.RegisterRoutesGroup(redirectGroup)
 
-	// Public QR code endpoint
-	e.GET("/qr/:code", linkHandler.QRCode)
-
-	// Register REST API v1 Group with API Rate Limiter (e.g., max 60 requests per 10s per IP)
+	// Register REST API v1 Group with API Rate Limiter (max 60 requests per 10s per IP)
 	apiV1 := e.Group("/api/v1")
 	if rdb != nil {
 		apiLimiter := middleware.RedisRateLimiter(rdb, middleware.RateLimiterConfig{

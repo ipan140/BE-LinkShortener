@@ -1,7 +1,10 @@
 package analytics
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
+	"fmt"
 	"log"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 type Service interface {
 	StartClickCollectorWorker(ctx context.Context)
 	GetAnalytics(ctx context.Context, shortCode string) (*AnalyticsSummary, error)
+	ExportClicksCSV(ctx context.Context, shortCode string) ([]byte, error)
 }
 
 type service struct {
@@ -93,4 +97,62 @@ func (s *service) GetAnalytics(ctx context.Context, shortCode string) (*Analytic
 	}
 
 	return summary, nil
+}
+
+// ExportClicksCSV generates a CSV file with click details for the requested shortcode
+func (s *service) ExportClicksCSV(ctx context.Context, shortCode string) ([]byte, error) {
+	if shortCode == "" {
+		return nil, appErrors.BadRequest("missing short code", nil)
+	}
+
+	clicks, err := s.repo.GetClicksForExport(ctx, shortCode)
+	if err != nil {
+		return nil, appErrors.Internal("failed to fetch click data for export")
+	}
+
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
+
+	// Write header row
+	header := []string{
+		"ID",
+		"ShortCode",
+		"ClickedAt (UTC)",
+		"IP",
+		"Country",
+		"City",
+		"DeviceType",
+		"Browser",
+		"OS",
+		"Referrer",
+	}
+	if err := writer.Write(header); err != nil {
+		return nil, err
+	}
+
+	// Write records
+	for _, c := range clicks {
+		row := []string{
+			fmt.Sprintf("%d", c.ID),
+			c.ShortCode,
+			c.ClickedAt.UTC().Format(time.RFC3339),
+			c.IP,
+			c.Country,
+			c.City,
+			c.DeviceType,
+			c.Browser,
+			c.OS,
+			c.Referrer,
+		}
+		if err := writer.Write(row); err != nil {
+			return nil, err
+		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }

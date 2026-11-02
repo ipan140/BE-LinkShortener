@@ -6,18 +6,22 @@ import (
 )
 
 type Route struct {
-	handler   *Handler
-	jwtSecret string
+	handler     *Handler
+	jwtSecret   string
+	authService any
 }
 
-func NewRoute(handler *Handler, jwtSecret string) *Route {
+func NewRoute(handler *Handler, jwtSecret string, authService any) *Route {
 	return &Route{
-		handler:   handler,
-		jwtSecret: jwtSecret,
+		handler:     handler,
+		jwtSecret:   jwtSecret,
+		authService: authService,
 	}
 }
 
 func (r *Route) RegisterRoutes(g *echo.Group) {
-	analyticsGroup := g.Group("/analytics", middleware.JWTMiddleware(r.jwtSecret))
+	// Protected endpoints (Supports both Bearer JWT and X-API-Key)
+	analyticsGroup := g.Group("/analytics", middleware.CombinedAuthMiddleware(r.jwtSecret, r.authService))
 	analyticsGroup.GET("/:code", r.handler.GetAnalytics)
+	analyticsGroup.GET("/:code/export.csv", r.handler.ExportCSV)
 }

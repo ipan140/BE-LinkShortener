@@ -23,6 +23,7 @@ func (r *Route) RegisterRoutes(g *echo.Group) {
 	authGroup.POST("/login", r.handler.Login)
 
 	// Protected routes
-	protected := authGroup.Group("", middleware.JWTMiddleware(r.jwtSecret))
+	protected := authGroup.Group("", middleware.CombinedAuthMiddleware(r.jwtSecret, r.handler.service))
 	protected.GET("/me", r.handler.Me)
+	protected.POST("/api-key/regenerate", r.handler.RegenerateAPIKey)
 }

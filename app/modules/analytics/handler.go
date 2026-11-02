@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -29,4 +30,23 @@ func (h *Handler) GetAnalytics(c echo.Context) error {
 	}
 
 	return utils.JSONSuccess(c, http.StatusOK, "analytics retrieved successfully", summary)
+}
+
+// ExportCSV exports raw click telemetry as a downloadable CSV file
+func (h *Handler) ExportCSV(c echo.Context) error {
+	code := strings.TrimSpace(c.Param("code"))
+	if code == "" {
+		return utils.JSONError(c, appErrors.BadRequest("missing short code parameter", nil))
+	}
+
+	csvBytes, err := h.service.ExportClicksCSV(c.Request().Context(), code)
+	if err != nil {
+		return utils.JSONError(c, err)
+	}
+
+	fileName := fmt.Sprintf("clicks_%s.csv", code)
+	c.Response().Header().Set("Content-Type", "text/csv; charset=utf-8")
+	c.Response().Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
+
+	return c.Blob(http.StatusOK, "text/csv; charset=utf-8", csvBytes)
 }

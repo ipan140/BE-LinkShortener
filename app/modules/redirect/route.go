@@ -26,3 +26,14 @@ func (r *Route) RegisterRoutes(e *echo.Echo) {
 	e.HEAD("/r/:code", r.handler.Redirect)
 	e.POST("/r/:code", r.handler.Redirect)
 }
+
+// RegisterRoutesGroup registers routes to an Echo Group with attached middlewares
+func (r *Route) RegisterRoutesGroup(g *echo.Group) {
+	g.GET("/:code", r.handler.Redirect)
+	g.HEAD("/:code", r.handler.Redirect)
+	g.POST("/:code", r.handler.Redirect)
+
+	g.GET("/r/:code", r.handler.Redirect)
+	g.HEAD("/r/:code", r.handler.Redirect)
+	g.POST("/r/:code", r.handler.Redirect)
+}

@@ -1,6 +1,6 @@
 # Ultra-Fast Redirector & Click Collector (Modular Monolith)
 
-Backend performa ultra-tinggi untuk link shortener yang mengarahkan klik ke target URL dalam tempo **<10 ms** menggunakan **Redis In-Memory Cache**, sambil mengumpulkan data klik (Device, OS, Browser, IP, Negara, Kota, Referrer, UTM Tags) secara non-blocking ke **Antrean Background (Redis Queue)** untuk diproses oleh Background Worker.
+Backend performa ultra-tinggi untuk link shortener yang mengarahkan klik ke target URL dalam tempo **<10 ms** menggunakan **Redis In-Memory Cache**, sambil mengumpulkan data klik (Device, OS, Browser, IP, Negara, Kota, Referrer, UTM Tags) secara non-blocking ke **Antrean Background (Redis Queue)** untuk diproses oleh Background Worker ke **PostgreSQL**.
 
 ---
 
@@ -8,20 +8,25 @@ Backend performa ultra-tinggi untuk link shortener yang mengarahkan klik ke targ
 
 1. **Ultra-Fast Redirector (<10 ms Target)**:
    * Query in-memory cache langsung dari Redis (`link:{code}`) dengan latensi sub-milidetik.
-   * Auto-fallback ke database GORM jika terjadi cache miss, sekaligus melakukan *cache warming* (TTL 24 jam).
-2. **Asynchronous Click Collector**:
-   * Pengumpulan metadata pengunjung (IP, negara via Cloudflare/Geo header, kota, browser, OS, device, referrer, query string) secara non-blocking melalui Redis list queue.
-   * Background batch collector worker menguras antrean (100 item/1s) dan melakukan bulk insert ke basis data.
-3. **QR Code Generator**:
-   * Endpoint `GET /api/v1/links/qr/:code?size=256` untuk menghasilkan gambar QR Code PNG beresolusi tinggi langsung dari binary.
-4. **UTM Parameter Forwarder**:
+   * Auto-fallback ke database PostgreSQL GORM jika terjadi cache miss, sekaligus melakukan *cache warming* (TTL 24 jam).
+2. **📱 Smart Device-Based Routing (Deep-Linking iOS / Android)**:
+   * Pengunjung dari perangkat **iOS** (iPhone/iPad) otomatis diarahkan ke `ios_url` (App Store).
+   * Pengunjung dari perangkat **Android** otomatis diarahkan ke `android_url` (Google Play Store).
+   * Pengunjung Desktop/Web diarahkan ke `original_url`.
+3. **🏷️ UTM & Query Parameter Forwarding**:
    * Secara otomatis meneruskan dan menggabungkan query parameter (seperti `utm_source`, `utm_medium`, `utm_campaign`, `fbclid`, dll.) dari shortlink ke URL tujuan akhir tanpa merusak parameter yang sudah ada di URL asli.
-5. **Password-Protected Links**:
-   * Mengamankan link dengan kata sandi (menggunakan enkripsi kuat bcrypt). Pengunjung via browser akan disuguhkan halaman PIN/Password interaktif modern, atau via query parameter `?p=password`.
-6. **Max Click Limit (Self-Destruct)**:
+4. **📊 Export Data Analitik ke CSV (`GET /api/v1/analytics/:code/export.csv`)**:
+   * Unduh seluruh riwayat telemetri klik secara langsung dalam format spreadsheet `.csv` (Timestamp UTC, IP, Negara, Kota, Device, Browser, OS, Referrer).
+5. **🎨 Responsive HTML Landing Pages (404, Expired, Quota Reached, Deactivated)**:
+   * Jika link tidak ditemukan atau sudah kedaluwarsa, browser pengunjung disajikan halaman HTML modern dark-theme interaktif (bukan JSON mentah). Klien API tetap mendapatkan JSON standar.
+6. **🔒 Password-Protected Links**:
+   * Mengamankan link dengan kata sandi (menggunakan enkripsi kuat bcrypt) dengan formulir PIN interaktif di browser.
+7. **⏱️ Max Click Limit (Self-Destruct)**:
    * Batasi jumlah total klik yang diizinkan (misal kuota 100 klik). Setelah limit tercapai, link otomatis kedaluwarsa.
-7. **Anti-Abuse Redis Sliding-Window Rate Limiter**:
+8. **🛡️ Anti-Abuse Redis Sliding-Window Rate Limiter**:
    * Melindungi endpoint redirect dan REST API dari serangan DDoS, click fraud, dan bot flooding menggunakan algoritma Redis sliding-window ZSet.
+9. **📷 Instant QR Code Generator**:
+   * Endpoint publik `GET /qr/:code?size=256` untuk menghasilkan gambar QR Code PNG beresolusi tinggi langsung dari memory.
 
 ---
 
@@ -72,14 +77,14 @@ Setiap modul mengadopsi prinsip pemisahan tanggung jawab (*Separation of Concern
 │       │   ├── repository.go
 │       │   ├── route.go
 │       │   └── service.go
-│       ├── link/              # Modul Manajemen Link & QR Generator
+│       ├── link/              # Modul Manajemen Link, Device Routing & QR Generator
 │       │   ├── handler.go
 │       │   ├── model.go
 │       │   ├── redis.go
 │       │   ├── repository.go
 │       │   ├── route.go
 │       │   └── service.go
-│       ├── redirect/          # Ultra-Fast Redirector, UTM Forwarder & Protection
+│       ├── redirect/          # Ultra-Fast Redirector, Smart Routing & Landing Pages
 │       │   ├── handler.go
 │       │   ├── model.go
 │       │   ├── redis.go
@@ -87,7 +92,7 @@ Setiap modul mengadopsi prinsip pemisahan tanggung jawab (*Separation of Concern
 │       │   ├── route.go
 │       │   ├── service.go
 │       │   └── service_test.go
-│       └── analytics/         # Background Worker & Statistik Klik
+│       └── analytics/         # Worker Telemetri, Agregat & Export CSV
 │           ├── handler.go
 │           ├── model.go
 │           ├── redis.go
@@ -103,7 +108,7 @@ Setiap modul mengadopsi prinsip pemisahan tanggung jawab (*Separation of Concern
 │   └── utils/                 # Base62 Generator, IP Resolver, UserAgent Parser
 ├── config/
 │   ├── config.go              # App, DB, Redis, Worker Configurations
-│   ├── database.go            # GORM Postgres/SQLite Connection Pooling
+│   ├── database.go            # GORM PostgreSQL Connection Pooling
 │   ├── env.go                 # Env Loader & Helpers
 │   └── redis.go               # Go-Redis Client & Connection Pool
 ├── docs/
@@ -125,53 +130,21 @@ Setiap modul mengadopsi prinsip pemisahan tanggung jawab (*Separation of Concern
 
 ## 🛠️ Panduan Menjalankan
 
-### 1. Konfigurasi Lingkungan
-Salin file template `.env.example` menjadi `.env`:
-```bash
-cp .env.example .env
-```
-
-### 2. Menjalankan Server
+### 1. Menjalankan Server
 ```bash
 go run ./cmd/api
 ```
 
-### 3. Menjalankan Unit Test
+### 2. Menjalankan Unit Test
 ```bash
 go test -v ./...
 ```
 
-### 4. Build Single Executable Binary
+### 3. Build Single Executable Binary
 ```bash
 go build -ldflags="-s -w" -o redirector.exe ./cmd/api
 ```
 
-### 5. Swagger UI
-Akses dokumentasi interaktif di: `http://localhost:8080/swagger/index.html`
-
----
-
-## 📡 Panduan Penggunaan Fitur Baru
-
-### A. Membuat Link dengan Proteksi Password & Batas Klik
-`POST /api/v1/links`
-```json
-{
-  "original_url": "https://company.internal/secret-report",
-  "custom_code": "laporan-q3",
-  "password": "PIN_RAHASIA_123",
-  "max_clicks": 50,
-  "title": "Laporan Rahasia Q3"
-}
-```
-
-### B. Mengunduh QR Code Shortlink
-`GET /api/v1/links/qr/laporan-q3?size=300`
-* Mengembalikan file binary `image/png` yang siap dipajang di poster atau media sosial.
-
-### C. Redirect dengan UTM Parameter Forwarding
-Kunjungan ke:
-`http://localhost:8080/laporan-q3?utm_source=telegram&utm_campaign=launch`
-Akan secara otomatis diarahkan ke:
-`https://company.internal/secret-report?utm_source=telegram&utm_campaign=launch`
-Semua parameter UTM tetap utuh dan ikut tercatat di tabel log telemetri analitik!
+### 4. Swagger UI Documentation
+Akses dokumentasi interaktif di:
+👉 **`http://localhost:8080/swagger/index.html`**

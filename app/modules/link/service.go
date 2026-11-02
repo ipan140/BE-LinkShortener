@@ -17,7 +17,7 @@ import (
 type Service interface {
 	CreateLink(ctx context.Context, userID uint, req CreateLinkRequest) (*LinkResponse, error)
 	GetLinkByID(ctx context.Context, id, userID uint) (*LinkResponse, error)
-	ListLinks(ctx context.Context, userID uint, page, limit int) ([]LinkResponse, int64, error)
+	ListLinks(ctx context.Context, userID uint, tag string, page, limit int) ([]LinkResponse, int64, error)
 	UpdateLink(ctx context.Context, id, userID uint, req UpdateLinkRequest) (*LinkResponse, error)
 	DeleteLink(ctx context.Context, id, userID uint) error
 	GenerateQRCode(ctx context.Context, code string, size int) ([]byte, error)
@@ -41,6 +41,22 @@ func (s *service) CreateLink(ctx context.Context, userID uint, req CreateLinkReq
 	parsedURL, err := url.ParseRequestURI(strings.TrimSpace(req.OriginalURL))
 	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
 		return nil, appErrors.BadRequest("invalid URL format, must begin with http:// or https://", nil)
+	}
+
+	var iosURL, androidURL string
+	if req.IOSURL != "" {
+		pIOS, err := url.ParseRequestURI(strings.TrimSpace(req.IOSURL))
+		if err != nil || (pIOS.Scheme != "http" && pIOS.Scheme != "https") {
+			return nil, appErrors.BadRequest("invalid iOS URL format", nil)
+		}
+		iosURL = pIOS.String()
+	}
+	if req.AndroidURL != "" {
+		pAndroid, err := url.ParseRequestURI(strings.TrimSpace(req.AndroidURL))
+		if err != nil || (pAndroid.Scheme != "http" && pAndroid.Scheme != "https") {
+			return nil, appErrors.BadRequest("invalid Android URL format", nil)
+		}
+		androidURL = pAndroid.String()
 	}
 
 	var shortCode string
@@ -87,9 +103,13 @@ func (s *service) CreateLink(ctx context.Context, userID uint, req CreateLinkReq
 	link := &Link{
 		UserID:       userID,
 		OriginalURL:  parsedURL.String(),
+		IOSURL:       iosURL,
+		AndroidURL:   androidURL,
 		ShortCode:    shortCode,
 		Title:        req.Title,
 		Description:  req.Description,
+		ImageURL:     req.ImageURL,
+		Tags:         strings.TrimSpace(req.Tags),
 		IsActive:     true,
 		ExpiresAt:    req.ExpiresAt,
 		MaxClicks:    req.MaxClicks,
@@ -101,9 +121,8 @@ func (s *service) CreateLink(ctx context.Context, userID uint, req CreateLinkReq
 		return nil, appErrors.Internal("failed to save link")
 	}
 
-	// Warm cache immediately in Redis
-	// If password protected, do NOT set raw direct redirect cache (must authenticate first)
-	if !isProtected {
+	// Warm cache in Redis ONLY if the link is a straightforward redirect (no password, no max click limits, no device routing)
+	if !isProtected && link.MaxClicks == nil && link.IOSURL == "" && link.AndroidURL == "" {
 		_ = s.cache.SetLink(ctx, shortCode, link.OriginalURL, 24*time.Hour)
 	}
 	_ = s.cache.SetLinkMeta(ctx, shortCode, link, 24*time.Hour)
@@ -122,7 +141,7 @@ func (s *service) GetLinkByID(ctx context.Context, id, userID uint) (*LinkRespon
 	return s.toResponse(link), nil
 }
 
-func (s *service) ListLinks(ctx context.Context, userID uint, page, limit int) ([]LinkResponse, int64, error) {
+func (s *service) ListLinks(ctx context.Context, userID uint, tag string, page, limit int) ([]LinkResponse, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -130,7 +149,7 @@ func (s *service) ListLinks(ctx context.Context, userID uint, page, limit int) (
 		limit = 20
 	}
 
-	links, total, err := s.repo.ListByUserID(ctx, userID, page, limit)
+	links, total, err := s.repo.ListByUserID(ctx, userID, tag, page, limit)
 	if err != nil {
 		return nil, 0, appErrors.Internal("failed to list links")
 	}
@@ -159,11 +178,39 @@ func (s *service) UpdateLink(ctx context.Context, id, userID uint, req UpdateLin
 		}
 		link.OriginalURL = parsedURL.String()
 	}
+	if req.IOSURL != nil {
+		if *req.IOSURL != "" {
+			pIOS, err := url.ParseRequestURI(strings.TrimSpace(*req.IOSURL))
+			if err != nil || (pIOS.Scheme != "http" && pIOS.Scheme != "https") {
+				return nil, appErrors.BadRequest("invalid iOS URL format", nil)
+			}
+			link.IOSURL = pIOS.String()
+		} else {
+			link.IOSURL = ""
+		}
+	}
+	if req.AndroidURL != nil {
+		if *req.AndroidURL != "" {
+			pAndroid, err := url.ParseRequestURI(strings.TrimSpace(*req.AndroidURL))
+			if err != nil || (pAndroid.Scheme != "http" && pAndroid.Scheme != "https") {
+				return nil, appErrors.BadRequest("invalid Android URL format", nil)
+			}
+			link.AndroidURL = pAndroid.String()
+		} else {
+			link.AndroidURL = ""
+		}
+	}
 	if req.Title != "" {
 		link.Title = req.Title
 	}
 	if req.Description != "" {
 		link.Description = req.Description
+	}
+	if req.ImageURL != nil {
+		link.ImageURL = *req.ImageURL
+	}
+	if req.Tags != nil {
+		link.Tags = strings.TrimSpace(*req.Tags)
 	}
 	if req.IsActive != nil {
 		link.IsActive = *req.IsActive
@@ -193,7 +240,14 @@ func (s *service) UpdateLink(ctx context.Context, id, userID uint, req UpdateLin
 	}
 
 	// Invalidate or refresh Redis cache
-	if !link.IsActive || (link.ExpiresAt != nil && link.ExpiresAt.Before(time.Now())) || link.IsProtected {
+	canCache := link.IsActive &&
+		(link.ExpiresAt == nil || link.ExpiresAt.After(time.Now())) &&
+		!link.IsProtected &&
+		link.MaxClicks == nil &&
+		link.IOSURL == "" &&
+		link.AndroidURL == ""
+
+	if !canCache {
 		_ = s.cache.DeleteLink(ctx, link.ShortCode)
 	} else {
 		_ = s.cache.SetLink(ctx, link.ShortCode, link.OriginalURL, 24*time.Hour)
@@ -239,10 +293,14 @@ func (s *service) toResponse(link *Link) *LinkResponse {
 	return &LinkResponse{
 		ID:          link.ID,
 		OriginalURL: link.OriginalURL,
+		IOSURL:      link.IOSURL,
+		AndroidURL:  link.AndroidURL,
 		ShortCode:   link.ShortCode,
 		ShortURL:    fmt.Sprintf("%s/%s", strings.TrimRight(s.cfg.App.BaseURL, "/"), link.ShortCode),
 		Title:       link.Title,
 		Description: link.Description,
+		ImageURL:    link.ImageURL,
+		Tags:        link.Tags,
 		IsActive:    link.IsActive,
 		ExpiresAt:   link.ExpiresAt,
 		MaxClicks:   link.MaxClicks,

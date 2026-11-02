@@ -57,3 +57,19 @@ func (h *Handler) Me(c echo.Context) error {
 
 	return utils.JSONSuccess(c, http.StatusOK, "user profile retrieved", user)
 }
+
+func (h *Handler) RegenerateAPIKey(c echo.Context) error {
+	userID, ok := c.Get("user_id").(uint)
+	if !ok {
+		return utils.JSONError(c, appErrors.Unauthorized("unauthorized"))
+	}
+
+	newKey, err := h.service.RegenerateAPIKey(c.Request().Context(), userID)
+	if err != nil {
+		return utils.JSONError(c, err)
+	}
+
+	return utils.JSONSuccess(c, http.StatusOK, "API key regenerated successfully", map[string]string{
+		"api_key": newKey,
+	})
+}

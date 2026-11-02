@@ -51,6 +51,42 @@ func TestMergeQueryParams(t *testing.T) {
 	}
 }
 
+func TestResolve_SmartDeviceRouting(t *testing.T) {
+	repo := &mockRepo{
+		link: &RedirectLink{
+			ID:          1,
+			OriginalURL: "https://example.com/web",
+			IOSURL:      "https://apps.apple.com/app/id12345",
+			AndroidURL:  "https://play.google.com/store/apps/details?id=com.app",
+			ShortCode:   "app-link",
+			IsActive:    true,
+		},
+	}
+	cache := &mockCache{}
+	service := NewService(repo, cache)
+
+	// 1. iOS visitor
+	iosClick := &ClickData{ShortCode: "app-link", OS: "iOS"}
+	targetIOS, _, err := service.Resolve(context.Background(), "app-link", "", "", iosClick)
+	if err != nil || targetIOS != "https://apps.apple.com/app/id12345" {
+		t.Fatalf("expected iOS target, got %s, err: %v", targetIOS, err)
+	}
+
+	// 2. Android visitor
+	androidClick := &ClickData{ShortCode: "app-link", OS: "Android"}
+	targetAndroid, _, err := service.Resolve(context.Background(), "app-link", "", "", androidClick)
+	if err != nil || targetAndroid != "https://play.google.com/store/apps/details?id=com.app" {
+		t.Fatalf("expected Android target, got %s, err: %v", targetAndroid, err)
+	}
+
+	// 3. Desktop visitor
+	desktopClick := &ClickData{ShortCode: "app-link", OS: "Windows"}
+	targetDesktop, _, err := service.Resolve(context.Background(), "app-link", "", "", desktopClick)
+	if err != nil || targetDesktop != "https://example.com/web" {
+		t.Fatalf("expected Default target, got %s, err: %v", targetDesktop, err)
+	}
+}
+
 func TestResolve_PasswordProtected(t *testing.T) {
 	password := "secret123"
 	hashed, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
