@@ -1,0 +1,56 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Ultra-Fast Redirector & Click Collector API",
+    "version": "1.0.0",
+    "description": "High-performance modular monolith for <10ms short link redirection and asynchronous click event logging"
+  },
+  "paths": {
+    "/{code}": {
+      "get": {
+        "summary": "Ultra-fast redirection to destination URL (<10ms via Redis)",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to original target URL"
+          },
+          "404": {
+            "description": "Short code not found"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "summary": "Register a new user account"
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "summary": "Authenticate and obtain JWT token"
+      }
+    },
+    "/api/v1/links": {
+      "post": {
+        "summary": "Create a new short link"
+      },
+      "get": {
+        "summary": "List user's shortened links"
+      }
+    },
+    "/api/v1/analytics/{code}": {
+      "get": {
+        "summary": "Get click statistics and visitor demographics"
+      }
+    }
+  }
+}

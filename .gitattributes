@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.go text diff=golang
+*.json text
+*.md text
+*.sh text eol=lf
+Makefile text eol=lf
