@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 	"link-shortener/app/modules/link"
+	"link-shortener/common/utils"
 )
 
 type Repository interface {
@@ -22,7 +23,7 @@ func NewRepository(db *gorm.DB) Repository {
 	return &repository{db: db}
 }
 
-// BatchInsertClicks bulk inserts click records and atomically updates click counters on links table
+// BatchInsertClicks bulk inserts click records, updates counters, and dispatches webhooks
 func (r *repository) BatchInsertClicks(ctx context.Context, clicks []Click) error {
 	if len(clicks) == 0 {
 		return nil
@@ -41,10 +42,46 @@ func (r *repository) BatchInsertClicks(ctx context.Context, clicks []Click) erro
 		}
 
 		for code, delta := range counts {
-			if err := tx.Model(&link.Link{}).
-				Where("short_code = ?", code).
-				UpdateColumn("click_count", gorm.Expr("click_count + ?", delta)).Error; err != nil {
-				return err
+			var l link.Link
+			if err := tx.Where("short_code = ?", code).First(&l).Error; err == nil {
+				oldCount := l.ClickCount
+				newCount := oldCount + delta
+				if err := tx.Model(&link.Link{}).Where("id = ?", l.ID).UpdateColumn("click_count", newCount).Error; err != nil {
+					return err
+				}
+
+				// Dispatch Webhook notification if webhook_url is configured
+				if l.WebhookURL != "" {
+					nowStr := time.Now().UTC().Format(time.RFC3339)
+
+					// 1. Max clicks reached event
+					if l.MaxClicks != nil && oldCount < *l.MaxClicks && newCount >= *l.MaxClicks {
+						utils.DispatchWebhook(l.WebhookURL, utils.WebhookPayload{
+							Event:       "max_clicks_reached",
+							ShortCode:   l.ShortCode,
+							Title:       l.Title,
+							OriginalURL: l.OriginalURL,
+							TotalClicks: newCount,
+							Timestamp:   nowStr,
+						})
+					} else {
+						// 2. Click milestone reached event (10, 50, 100, 500, 1000, 5000, 10000...)
+						milestones := []int64{10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 50000, 100000}
+						for _, m := range milestones {
+							if oldCount < m && newCount >= m {
+								utils.DispatchWebhook(l.WebhookURL, utils.WebhookPayload{
+									Event:       "milestone_reached",
+									ShortCode:   l.ShortCode,
+									Title:       l.Title,
+									OriginalURL: l.OriginalURL,
+									TotalClicks: newCount,
+									Timestamp:   nowStr,
+								})
+								break
+							}
+						}
+					}
+				}
 			}
 		}
 
@@ -138,7 +175,7 @@ func (r *repository) GetClicksForExport(ctx context.Context, shortCode string) (
 	err := r.db.WithContext(ctx).
 		Where("short_code = ?", shortCode).
 		Order("clicked_at DESC").
-		Limit(10000). // Limit export to top 10,000 for safety
+		Limit(10000).
 		Find(&clicks).Error
 	if err != nil {
 		return nil, err

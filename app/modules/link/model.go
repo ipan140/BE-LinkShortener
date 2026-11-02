@@ -16,8 +16,9 @@ type Link struct {
 	ShortCode    string         `gorm:"type:varchar(50);uniqueIndex;not null" json:"short_code"`
 	Title        string         `gorm:"type:varchar(255)" json:"title"`
 	Description  string         `gorm:"type:text" json:"description"`
-	ImageURL     string         `gorm:"type:text" json:"image_url,omitempty"` // OpenGraph preview image banner
-	Tags         string         `gorm:"type:varchar(255);index" json:"tags,omitempty"` // Campaign tags (e.g. marketing,promo)
+	ImageURL     string         `gorm:"type:text" json:"image_url,omitempty"`
+	Tags         string         `gorm:"type:varchar(255);index" json:"tags,omitempty"`
+	WebhookURL   string         `gorm:"type:text" json:"webhook_url,omitempty"` // Discord / Telegram / Custom webhook
 	IsActive     bool           `gorm:"default:true;index" json:"is_active"`
 	ExpiresAt    *time.Time     `gorm:"index" json:"expires_at,omitempty"`
 	MaxClicks    *int64         `json:"max_clicks,omitempty"`
@@ -43,6 +44,7 @@ type CreateLinkRequest struct {
 	Description string     `json:"description,omitempty"`
 	ImageURL    string     `json:"image_url,omitempty"`
 	Tags        string     `json:"tags,omitempty"`
+	WebhookURL  string     `json:"webhook_url,omitempty" validate:"omitempty,url"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	MaxClicks   *int64     `json:"max_clicks,omitempty"`
 	Password    string     `json:"password,omitempty"`
@@ -56,10 +58,11 @@ type UpdateLinkRequest struct {
 	Description string     `json:"description,omitempty"`
 	ImageURL    *string    `json:"image_url,omitempty"`
 	Tags        *string    `json:"tags,omitempty"`
+	WebhookURL  *string    `json:"webhook_url,omitempty"`
 	IsActive    *bool      `json:"is_active,omitempty"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	MaxClicks   *int64     `json:"max_clicks,omitempty"`
-	Password    *string    `json:"password,omitempty"` // empty string removes protection
+	Password    *string    `json:"password,omitempty"`
 }
 
 type LinkResponse struct {
@@ -73,6 +76,7 @@ type LinkResponse struct {
 	Description string     `json:"description"`
 	ImageURL    string     `json:"image_url,omitempty"`
 	Tags        string     `json:"tags,omitempty"`
+	WebhookURL  string     `json:"webhook_url,omitempty"`
 	IsActive    bool       `json:"is_active"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	MaxClicks   *int64     `json:"max_clicks,omitempty"`

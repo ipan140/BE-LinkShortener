@@ -1,6 +1,9 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"time"
 )
 
@@ -21,7 +24,7 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Driver          string // "postgres" or "sqlite"
+	Driver          string
 	DSN             string
 	MaxOpenConns    int
 	MaxIdleConns    int
@@ -53,9 +56,41 @@ type WorkerConfig struct {
 	WorkerCount   int
 }
 
-// LoadConfig initializes application configuration from environment variables
+// getDatabaseDSN dynamically constructs the database connection string from environment variables
+func getDatabaseDSN(driver string) string {
+	if dsn := GetEnv("DB_DSN", ""); dsn != "" {
+		return dsn
+	}
+	if driver == "postgres" {
+		host := GetEnv("DB_HOST", "localhost")
+		port := GetEnv("DB_PORT", "5432")
+		user := GetEnv("DB_USER", "postgres")
+		pass := GetEnv("DB_PASSWORD", "")
+		name := GetEnv("DB_NAME", "shortener_db")
+		ssl := GetEnv("DB_SSLMODE", "disable")
+		tz := GetEnv("DB_TIMEZONE", "Asia/Jakarta")
+		return fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=%s",
+			host, user, pass, name, port, ssl, tz)
+	}
+	return "redirector.db"
+}
+
+// getJWTSecret retrieves secret from environment or creates a secure runtime random key
+func getJWTSecret() string {
+	if secret := GetEnv("JWT_SECRET", ""); secret != "" {
+		return secret
+	}
+	// Secure fallback: ephemeral random 32-byte key (no dummy hardcoding)
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// LoadConfig initializes application configuration purely from environment variables
 func LoadConfig() *AppConfig {
 	LoadEnv()
+
+	driver := GetEnv("DB_DRIVER", "postgres")
 
 	return &AppConfig{
 		App: ServerConfig{
@@ -66,8 +101,8 @@ func LoadConfig() *AppConfig {
 			ReadTimeout: time.Duration(GetEnvInt("SERVER_READ_TIMEOUT_SEC", 5)) * time.Second,
 		},
 		Database: DatabaseConfig{
-			Driver:          GetEnv("DB_DRIVER", "postgres"),
-			DSN:             GetEnv("DB_DSN", "host=localhost user=postgres password=Cebes1234 dbname=shortener_db port=5432 sslmode=disable TimeZone=Asia/Jakarta"),
+			Driver:          driver,
+			DSN:             getDatabaseDSN(driver),
 			MaxOpenConns:    GetEnvInt("DB_MAX_OPEN_CONNS", 50),
 			MaxIdleConns:    GetEnvInt("DB_MAX_IDLE_CONNS", 25),
 			ConnMaxLifetime: time.Duration(GetEnvInt("DB_CONN_MAX_LIFETIME_MIN", 30)) * time.Minute,
@@ -86,8 +121,8 @@ func LoadConfig() *AppConfig {
 			QueueKey:     GetEnv("REDIS_QUEUE_KEY", "queue:clicks"),
 		},
 		JWT: JWTConfig{
-			Secret:        GetEnv("JWT_SECRET", "super-secret-high-performance-key-change-in-prod"),
-			ExpireMinutes: GetEnvInt("JWT_EXPIRE_MINUTES", 1440), // 24 hours
+			Secret:        getJWTSecret(),
+			ExpireMinutes: GetEnvInt("JWT_EXPIRE_MINUTES", 1440),
 		},
 		Worker: WorkerConfig{
 			BatchSize:     GetEnvInt("WORKER_BATCH_SIZE", 100),

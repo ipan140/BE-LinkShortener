@@ -110,6 +110,7 @@ func (s *service) CreateLink(ctx context.Context, userID uint, req CreateLinkReq
 		Description:  req.Description,
 		ImageURL:     req.ImageURL,
 		Tags:         strings.TrimSpace(req.Tags),
+		WebhookURL:   strings.TrimSpace(req.WebhookURL),
 		IsActive:     true,
 		ExpiresAt:    req.ExpiresAt,
 		MaxClicks:    req.MaxClicks,
@@ -212,6 +213,9 @@ func (s *service) UpdateLink(ctx context.Context, id, userID uint, req UpdateLin
 	if req.Tags != nil {
 		link.Tags = strings.TrimSpace(*req.Tags)
 	}
+	if req.WebhookURL != nil {
+		link.WebhookURL = strings.TrimSpace(*req.WebhookURL)
+	}
 	if req.IsActive != nil {
 		link.IsActive = *req.IsActive
 	}
@@ -301,6 +305,7 @@ func (s *service) toResponse(link *Link) *LinkResponse {
 		Description: link.Description,
 		ImageURL:    link.ImageURL,
 		Tags:        link.Tags,
+		WebhookURL:  link.WebhookURL,
 		IsActive:    link.IsActive,
 		ExpiresAt:   link.ExpiresAt,
 		MaxClicks:   link.MaxClicks,

@@ -4,29 +4,37 @@ Backend performa ultra-tinggi untuk link shortener yang mengarahkan klik ke targ
 
 ---
 
-## 🌟 Fitur Unggulan
+## 🌟 Fitur Lengkap Sistem
 
 1. **Ultra-Fast Redirector (<10 ms Target)**:
    * Query in-memory cache langsung dari Redis (`link:{code}`) dengan latensi sub-milidetik.
    * Auto-fallback ke database PostgreSQL GORM jika terjadi cache miss, sekaligus melakukan *cache warming* (TTL 24 jam).
-2. **📱 Smart Device-Based Routing (Deep-Linking iOS / Android)**:
+2. **🔔 Webhook Notifications (Discord, Telegram, Custom HTTP)**:
+   * Notifikasi otomatis ke URL Webhook saat shortlink mencapai milestone klik (10, 50, 100, 500, 1000, 5000, dst.) atau saat batas kuota `max_clicks` tercapai.
+   * Format otomatis **Discord Rich Embed** dengan warna status khusus saat URL webhook berasal dari `discord.com/api/webhooks`.
+3. **📱 Smart Device-Based Routing (Deep-Linking iOS / Android)**:
    * Pengunjung dari perangkat **iOS** (iPhone/iPad) otomatis diarahkan ke `ios_url` (App Store).
    * Pengunjung dari perangkat **Android** otomatis diarahkan ke `android_url` (Google Play Store).
    * Pengunjung Desktop/Web diarahkan ke `original_url`.
-3. **🏷️ UTM & Query Parameter Forwarding**:
-   * Secara otomatis meneruskan dan menggabungkan query parameter (seperti `utm_source`, `utm_medium`, `utm_campaign`, `fbclid`, dll.) dari shortlink ke URL tujuan akhir tanpa merusak parameter yang sudah ada di URL asli.
-4. **📊 Export Data Analitik ke CSV (`GET /api/v1/analytics/:code/export.csv`)**:
-   * Unduh seluruh riwayat telemetri klik secara langsung dalam format spreadsheet `.csv` (Timestamp UTC, IP, Negara, Kota, Device, Browser, OS, Referrer).
-5. **🎨 Responsive HTML Landing Pages (404, Expired, Quota Reached, Deactivated)**:
-   * Jika link tidak ditemukan atau sudah kedaluwarsa, browser pengunjung disajikan halaman HTML modern dark-theme interaktif (bukan JSON mentah). Klien API tetap mendapatkan JSON standar.
-6. **🔒 Password-Protected Links**:
-   * Mengamankan link dengan kata sandi (menggunakan enkripsi kuat bcrypt) dengan formulir PIN interaktif di browser.
-7. **⏱️ Max Click Limit (Self-Destruct)**:
-   * Batasi jumlah total klik yang diizinkan (misal kuota 100 klik). Setelah limit tercapai, link otomatis kedaluwarsa.
-8. **🛡️ Anti-Abuse Redis Sliding-Window Rate Limiter**:
-   * Melindungi endpoint redirect dan REST API dari serangan DDoS, click fraud, dan bot flooding menggunakan algoritma Redis sliding-window ZSet.
-9. **📷 Instant QR Code Generator**:
-   * Endpoint publik `GET /qr/:code?size=256` untuk menghasilkan gambar QR Code PNG beresolusi tinggi langsung dari memory.
+4. **🌐 Social Media Rich Previews (OpenGraph & Twitter Cards)**:
+   * Deteksi bot media sosial (WhatsApp, Telegram, Twitter/X, Discord, Slack, Facebook).
+   * Menampilkan kartu pratinjau judul, deskripsi, dan banner gambar (`image_url`) sebelum diklik.
+5. **🔑 Permanent API Key Authentication (`X-API-Key`)**:
+   * Pengguna mendapatkan API Key permanen (`ak_live_...`) saat mendaftar. Mendukung integrasi tanpa kedaluwarsa dengan script otomatisasi via header `X-API-Key`.
+6. **🏷️ Kategori & Tag Kampanye (`#tag`)**:
+   * Mengelompokkan tautan berdasarkan tag (`tags: "marketing,promo"`), serta memfilter daftar tautan melalui `GET /api/v1/links?tag=promo`.
+7. **📊 Export Data Analitik ke CSV (`GET /api/v1/analytics/:code/export.csv`)**:
+   * Unduh seluruh riwayat telemetri klik secara langsung dalam format spreadsheet `.csv`.
+8. **🎨 Responsive HTML Landing Pages (404, Expired, Quota Reached, Deactivated)**:
+   * Kunjungan browser ke link yang kedaluwarsa/tidak ada akan disajikan halaman HTML modern bertema gelap.
+9. **🔒 Password-Protected Links**:
+   * Tautan dengan kata sandi (dienkripsi bcrypt) dan formulir PIN modern responsif.
+10. **⏱️ Max Click Limit (Self-Destruct)**:
+    * Pembatasan kuota klik total yang otomatis menonaktifkan link saat kuota tercapai.
+11. **🛡️ Anti-Abuse Redis Sliding-Window Rate Limiter**:
+    * Perlindungan terhadap serangan DDoS dan spam bot klik menggunakan Redis Sorted Set (`ZSet`).
+12. **📷 Instant QR Code Generator**:
+    * Endpoint publik `GET /qr/:code?size=256` untuk menghasilkan gambar QR Code PNG instan.
 
 ---
 
@@ -61,69 +69,6 @@ Setiap modul mengadopsi prinsip pemisahan tanggung jawab (*Separation of Concern
     ┌───────────────────────────┐
     │    model.go & redis.go    │  --> Entity Layer (GORM Struct) & Redis High-Speed Caching
     └───────────────────────────┘
-```
-
----
-
-## 📂 Struktur Direktori
-
-```text
-├── app/
-│   └── modules/
-│       ├── auth/              # Modul Otentikasi & Akun Pengguna (JWT)
-│       │   ├── handler.go
-│       │   ├── model.go
-│       │   ├── redis.go
-│       │   ├── repository.go
-│       │   ├── route.go
-│       │   └── service.go
-│       ├── link/              # Modul Manajemen Link, Device Routing & QR Generator
-│       │   ├── handler.go
-│       │   ├── model.go
-│       │   ├── redis.go
-│       │   ├── repository.go
-│       │   ├── route.go
-│       │   └── service.go
-│       ├── redirect/          # Ultra-Fast Redirector, Smart Routing & Landing Pages
-│       │   ├── handler.go
-│       │   ├── model.go
-│       │   ├── redis.go
-│       │   ├── repository.go
-│       │   ├── route.go
-│       │   ├── service.go
-│       │   └── service_test.go
-│       └── analytics/         # Worker Telemetri, Agregat & Export CSV
-│           ├── handler.go
-│           ├── model.go
-│           ├── redis.go
-│           ├── repository.go
-│           ├── route.go
-│           └── service.go
-├── cmd/
-│   └── api/
-│       └── main.go            # Monolith Entrypoint & DI Wiring
-├── common/
-│   ├── errors/                # Standardized HTTP Errors
-│   ├── middleware/            # JWT, CORS, Logger, Redis Sliding-Window RateLimiter
-│   └── utils/                 # Base62 Generator, IP Resolver, UserAgent Parser
-├── config/
-│   ├── config.go              # App, DB, Redis, Worker Configurations
-│   ├── database.go            # GORM PostgreSQL Connection Pooling
-│   ├── env.go                 # Env Loader & Helpers
-│   └── redis.go               # Go-Redis Client & Connection Pool
-├── docs/
-│   ├── docs.go                # Embedded Swagger UI
-│   └── openapi.json           # OpenAPI 3.0 Specification
-├── .dockerignore
-├── .editorconfig
-├── .env.example
-├── .gitattributes
-├── .gitignore
-├── Dockerfile
-├── Makefile
-├── README.md
-├── go.mod
-└── go.sum
 ```
 
 ---
