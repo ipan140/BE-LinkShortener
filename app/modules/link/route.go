@@ -18,6 +18,10 @@ func NewRoute(handler *Handler, jwtSecret string) *Route {
 }
 
 func (r *Route) RegisterRoutes(g *echo.Group) {
+	// Public QR endpoint
+	g.GET("/links/qr/:code", r.handler.QRCode)
+
+	// Protected endpoints
 	linkGroup := g.Group("/links", middleware.JWTMiddleware(r.jwtSecret))
 	linkGroup.POST("", r.handler.Create)
 	linkGroup.GET("", r.handler.List)

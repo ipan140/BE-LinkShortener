@@ -22,9 +22,8 @@ func NewRepository(db *gorm.DB) Repository {
 
 func (r *repository) FindActiveLink(ctx context.Context, shortCode string) (*RedirectLink, error) {
 	var l link.Link
-	// Select only necessary columns to minimize memory allocation and transfer
 	err := r.db.WithContext(ctx).
-		Select("id, original_url, short_code, is_active, expires_at").
+		Select("id, original_url, short_code, is_active, expires_at, max_clicks, click_count, password_hash, is_protected").
 		Where("short_code = ?", shortCode).
 		First(&l).Error
 
@@ -36,10 +35,14 @@ func (r *repository) FindActiveLink(ctx context.Context, shortCode string) (*Red
 	}
 
 	return &RedirectLink{
-		ID:          l.ID,
-		OriginalURL: l.OriginalURL,
-		ShortCode:   l.ShortCode,
-		IsActive:    l.IsActive,
-		ExpiresAt:   l.ExpiresAt,
+		ID:           l.ID,
+		OriginalURL:  l.OriginalURL,
+		ShortCode:    l.ShortCode,
+		IsActive:     l.IsActive,
+		ExpiresAt:    l.ExpiresAt,
+		MaxClicks:    l.MaxClicks,
+		ClickCount:   l.ClickCount,
+		PasswordHash: l.PasswordHash,
+		IsProtected:  l.IsProtected,
 	}, nil
 }

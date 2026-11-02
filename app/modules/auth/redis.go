@@ -23,11 +23,17 @@ func NewRedisCache(client *redis.Client) RedisCache {
 }
 
 func (r *redisCache) BlacklistToken(ctx context.Context, token string, ttl time.Duration) error {
+	if r.client == nil {
+		return nil
+	}
 	key := fmt.Sprintf("auth:blacklist:%s", token)
 	return r.client.Set(ctx, key, "1", ttl).Err()
 }
 
 func (r *redisCache) IsTokenBlacklisted(ctx context.Context, token string) (bool, error) {
+	if r.client == nil {
+		return false, nil
+	}
 	key := fmt.Sprintf("auth:blacklist:%s", token)
 	exists, err := r.client.Exists(ctx, key).Result()
 	if err != nil {
@@ -37,6 +43,9 @@ func (r *redisCache) IsTokenBlacklisted(ctx context.Context, token string) (bool
 }
 
 func (r *redisCache) CacheUserSession(ctx context.Context, userID uint, data string, ttl time.Duration) error {
+	if r.client == nil {
+		return nil
+	}
 	key := fmt.Sprintf("auth:session:%d", userID)
 	return r.client.Set(ctx, key, data, ttl).Err()
 }

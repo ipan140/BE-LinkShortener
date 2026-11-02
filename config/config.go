@@ -66,8 +66,8 @@ func LoadConfig() *AppConfig {
 			ReadTimeout: time.Duration(GetEnvInt("SERVER_READ_TIMEOUT_SEC", 5)) * time.Second,
 		},
 		Database: DatabaseConfig{
-			Driver:          GetEnv("DB_DRIVER", "sqlite"), // default sqlite for ease of local run / postgres in prod
-			DSN:             GetEnv("DB_DSN", "redirector.db"),
+			Driver:          GetEnv("DB_DRIVER", "postgres"),
+			DSN:             GetEnv("DB_DSN", "host=localhost user=postgres password=Cebes1234 dbname=shortener_db port=5432 sslmode=disable TimeZone=Asia/Jakarta"),
 			MaxOpenConns:    GetEnvInt("DB_MAX_OPEN_CONNS", 50),
 			MaxIdleConns:    GetEnvInt("DB_MAX_IDLE_CONNS", 25),
 			ConnMaxLifetime: time.Duration(GetEnvInt("DB_CONN_MAX_LIFETIME_MIN", 30)) * time.Minute,

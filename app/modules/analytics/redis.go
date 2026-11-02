@@ -27,7 +27,9 @@ func NewRedisQueue(client *redis.Client, queueKey string) RedisQueue {
 
 // PopBatch dequeues up to batchSize items from the Redis list
 func (r *redisQueue) PopBatch(ctx context.Context, batchSize int) ([]redirect.ClickData, error) {
-	// Try RPop with count
+	if r.client == nil {
+		return nil, nil
+	}
 	items, err := r.client.RPopCount(ctx, r.queueKey, batchSize).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {

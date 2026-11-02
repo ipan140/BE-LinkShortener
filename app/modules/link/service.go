@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skip2/go-qrcode"
+	"golang.org/x/crypto/bcrypt"
 	appErrors "link-shortener/common/errors"
 	"link-shortener/common/utils"
 	"link-shortener/config"
@@ -18,6 +20,7 @@ type Service interface {
 	ListLinks(ctx context.Context, userID uint, page, limit int) ([]LinkResponse, int64, error)
 	UpdateLink(ctx context.Context, id, userID uint, req UpdateLinkRequest) (*LinkResponse, error)
 	DeleteLink(ctx context.Context, id, userID uint) error
+	GenerateQRCode(ctx context.Context, code string, size int) ([]byte, error)
 }
 
 type service struct {
@@ -51,7 +54,6 @@ func (s *service) CreateLink(ctx context.Context, userID uint, req CreateLinkReq
 			return nil, appErrors.Conflict("custom short code is already taken")
 		}
 	} else {
-		// Generate random 6-character short code
 		for i := 0; i < 5; i++ {
 			code, err := utils.GenerateShortCode(6)
 			if err != nil {
@@ -71,22 +73,39 @@ func (s *service) CreateLink(ctx context.Context, userID uint, req CreateLinkReq
 		}
 	}
 
+	var passwordHash string
+	isProtected := false
+	if req.Password != "" {
+		hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, appErrors.Internal("failed to hash password")
+		}
+		passwordHash = string(hashed)
+		isProtected = true
+	}
+
 	link := &Link{
-		UserID:      userID,
-		OriginalURL: parsedURL.String(),
-		ShortCode:   shortCode,
-		Title:       req.Title,
-		Description: req.Description,
-		IsActive:    true,
-		ExpiresAt:   req.ExpiresAt,
+		UserID:       userID,
+		OriginalURL:  parsedURL.String(),
+		ShortCode:    shortCode,
+		Title:        req.Title,
+		Description:  req.Description,
+		IsActive:     true,
+		ExpiresAt:    req.ExpiresAt,
+		MaxClicks:    req.MaxClicks,
+		PasswordHash: passwordHash,
+		IsProtected:  isProtected,
 	}
 
 	if err := s.repo.Create(ctx, link); err != nil {
 		return nil, appErrors.Internal("failed to save link")
 	}
 
-	// Warm cache immediately in Redis for ultra-fast first redirect
-	_ = s.cache.SetLink(ctx, shortCode, link.OriginalURL, 24*time.Hour)
+	// Warm cache immediately in Redis
+	// If password protected, do NOT set raw direct redirect cache (must authenticate first)
+	if !isProtected {
+		_ = s.cache.SetLink(ctx, shortCode, link.OriginalURL, 24*time.Hour)
+	}
 	_ = s.cache.SetLinkMeta(ctx, shortCode, link, 24*time.Hour)
 
 	return s.toResponse(link), nil
@@ -152,13 +171,29 @@ func (s *service) UpdateLink(ctx context.Context, id, userID uint, req UpdateLin
 	if req.ExpiresAt != nil {
 		link.ExpiresAt = req.ExpiresAt
 	}
+	if req.MaxClicks != nil {
+		link.MaxClicks = req.MaxClicks
+	}
+	if req.Password != nil {
+		if *req.Password == "" {
+			link.PasswordHash = ""
+			link.IsProtected = false
+		} else {
+			hashed, err := bcrypt.GenerateFromPassword([]byte(*req.Password), bcrypt.DefaultCost)
+			if err != nil {
+				return nil, appErrors.Internal("failed to hash password")
+			}
+			link.PasswordHash = string(hashed)
+			link.IsProtected = true
+		}
+	}
 
 	if err := s.repo.Update(ctx, link); err != nil {
 		return nil, appErrors.Internal("failed to update link")
 	}
 
 	// Invalidate or refresh Redis cache
-	if !link.IsActive || (link.ExpiresAt != nil && link.ExpiresAt.Before(time.Now())) {
+	if !link.IsActive || (link.ExpiresAt != nil && link.ExpiresAt.Before(time.Now())) || link.IsProtected {
 		_ = s.cache.DeleteLink(ctx, link.ShortCode)
 	} else {
 		_ = s.cache.SetLink(ctx, link.ShortCode, link.OriginalURL, 24*time.Hour)
@@ -185,6 +220,21 @@ func (s *service) DeleteLink(ctx context.Context, id, userID uint) error {
 	return nil
 }
 
+// GenerateQRCode creates high-resolution QR Code PNG bytes for the short URL
+func (s *service) GenerateQRCode(ctx context.Context, code string, size int) ([]byte, error) {
+	if size <= 0 || size > 1024 {
+		size = 256
+	}
+
+	targetURL := fmt.Sprintf("%s/%s", strings.TrimRight(s.cfg.App.BaseURL, "/"), code)
+	pngBytes, err := qrcode.Encode(targetURL, qrcode.Medium, size)
+	if err != nil {
+		return nil, appErrors.Internal("failed to generate QR code")
+	}
+
+	return pngBytes, nil
+}
+
 func (s *service) toResponse(link *Link) *LinkResponse {
 	return &LinkResponse{
 		ID:          link.ID,
@@ -195,7 +245,9 @@ func (s *service) toResponse(link *Link) *LinkResponse {
 		Description: link.Description,
 		IsActive:    link.IsActive,
 		ExpiresAt:   link.ExpiresAt,
+		MaxClicks:   link.MaxClicks,
 		ClickCount:  link.ClickCount,
+		IsProtected: link.IsProtected,
 		CreatedAt:   link.CreatedAt,
 		UpdatedAt:   link.UpdatedAt,
 	}

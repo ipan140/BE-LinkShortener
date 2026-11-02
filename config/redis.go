@@ -27,6 +27,7 @@ func InitRedis(cfg *RedisConfig) (*redis.Client, error) {
 	defer cancel()
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
+		_ = rdb.Close()
 		return nil, fmt.Errorf("failed to ping redis server at %s: %w", addr, err)
 	}
 

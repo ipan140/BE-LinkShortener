@@ -107,11 +107,31 @@ func main() {
 	// Register Swagger / OpenAPI Docs
 	docs.RegisterDocsEndpoint(e)
 
-	// Register Redirect Routes at root level for minimum routing lookup overhead
+	// Register Redirect Routes with Anti-Abuse Rate Limiter (e.g., max 120 redirects per 10s per IP)
+	if rdb != nil {
+		redirectLimiter := middleware.RedisRateLimiter(rdb, middleware.RateLimiterConfig{
+			Limit:  120,
+			Window: 10 * time.Second,
+			Prefix: "redirect",
+		})
+		e.Group("", redirectLimiter)
+	}
 	redirectRoute.RegisterRoutes(e)
 
-	// Register REST API v1 Group
+	// Public QR code endpoint
+	e.GET("/qr/:code", linkHandler.QRCode)
+
+	// Register REST API v1 Group with API Rate Limiter (e.g., max 60 requests per 10s per IP)
 	apiV1 := e.Group("/api/v1")
+	if rdb != nil {
+		apiLimiter := middleware.RedisRateLimiter(rdb, middleware.RateLimiterConfig{
+			Limit:  60,
+			Window: 10 * time.Second,
+			Prefix: "api",
+		})
+		apiV1.Use(apiLimiter)
+	}
+
 	authRoute.RegisterRoutes(apiV1)
 	linkRoute.RegisterRoutes(apiV1)
 	analyticsRoute.RegisterRoutes(apiV1)

@@ -2,30 +2,66 @@
   "openapi": "3.0.0",
   "info": {
     "title": "Ultra-Fast Redirector & Click Collector API",
-    "version": "1.0.0",
-    "description": "High-performance modular monolith for <10ms short link redirection and asynchronous click event logging"
+    "version": "1.1.0",
+    "description": "High-performance modular monolith for <10ms short link redirection with QR generator, UTM forwarder, password protection, max click limits, and Redis rate limiting."
   },
   "paths": {
     "/{code}": {
       "get": {
-        "summary": "Ultra-fast redirection to destination URL (<10ms via Redis)",
+        "summary": "Ultra-fast redirection (<10ms via Redis) with UTM query forwarding",
         "parameters": [
           {
             "name": "code",
             "in": "path",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "p",
+            "in": "query",
+            "required": false,
+            "description": "Optional access password if shortlink is password protected",
+            "schema": { "type": "string" }
           }
         ],
         "responses": {
-          "302": {
-            "description": "Redirect to original target URL"
-          },
-          "404": {
-            "description": "Short code not found"
+          "302": { "description": "Redirects to destination URL with forwarded query params" },
+          "401": { "description": "Password required or invalid password" },
+          "404": { "description": "Short code not found" },
+          "429": { "description": "Rate limit exceeded" }
+        }
+      },
+      "post": {
+        "summary": "Submit password for a protected short link",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
           }
+        ]
+      }
+    },
+    "/api/v1/links/qr/{code}": {
+      "get": {
+        "summary": "Generate QR Code PNG image for short link",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 256 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Returns image/png QR Code binary" }
         }
       }
     },
@@ -41,7 +77,7 @@
     },
     "/api/v1/links": {
       "post": {
-        "summary": "Create a new short link"
+        "summary": "Create short link (Supports custom alias, password, max_clicks, expires_at)"
       },
       "get": {
         "summary": "List user's shortened links"

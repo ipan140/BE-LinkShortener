@@ -1,17 +1,38 @@
 # Ultra-Fast Redirector & Click Collector (Modular Monolith)
 
-Backend performa ultra-tinggi untuk link shortener yang mengarahkan klik ke target URL dalam tempo **<10 ms** menggunakan **Redis In-Memory Cache**, sambil mengumpulkan data klik (Device, OS, Browser, IP, Negara, Kota, Referrer) secara non-blocking ke **Antrean Background (Redis Queue)** untuk diproses oleh Background Worker.
+Backend performa ultra-tinggi untuk link shortener yang mengarahkan klik ke target URL dalam tempo **<10 ms** menggunakan **Redis In-Memory Cache**, sambil mengumpulkan data klik (Device, OS, Browser, IP, Negara, Kota, Referrer, UTM Tags) secara non-blocking ke **Antrean Background (Redis Queue)** untuk diproses oleh Background Worker.
+
+---
+
+## 🌟 Fitur Unggulan
+
+1. **Ultra-Fast Redirector (<10 ms Target)**:
+   * Query in-memory cache langsung dari Redis (`link:{code}`) dengan latensi sub-milidetik.
+   * Auto-fallback ke database GORM jika terjadi cache miss, sekaligus melakukan *cache warming* (TTL 24 jam).
+2. **Asynchronous Click Collector**:
+   * Pengumpulan metadata pengunjung (IP, negara via Cloudflare/Geo header, kota, browser, OS, device, referrer, query string) secara non-blocking melalui Redis list queue.
+   * Background batch collector worker menguras antrean (100 item/1s) dan melakukan bulk insert ke basis data.
+3. **QR Code Generator**:
+   * Endpoint `GET /api/v1/links/qr/:code?size=256` untuk menghasilkan gambar QR Code PNG beresolusi tinggi langsung dari binary.
+4. **UTM Parameter Forwarder**:
+   * Secara otomatis meneruskan dan menggabungkan query parameter (seperti `utm_source`, `utm_medium`, `utm_campaign`, `fbclid`, dll.) dari shortlink ke URL tujuan akhir tanpa merusak parameter yang sudah ada di URL asli.
+5. **Password-Protected Links**:
+   * Mengamankan link dengan kata sandi (menggunakan enkripsi kuat bcrypt). Pengunjung via browser akan disuguhkan halaman PIN/Password interaktif modern, atau via query parameter `?p=password`.
+6. **Max Click Limit (Self-Destruct)**:
+   * Batasi jumlah total klik yang diizinkan (misal kuota 100 klik). Setelah limit tercapai, link otomatis kedaluwarsa.
+7. **Anti-Abuse Redis Sliding-Window Rate Limiter**:
+   * Melindungi endpoint redirect dan REST API dari serangan DDoS, click fraud, dan bot flooding menggunakan algoritma Redis sliding-window ZSet.
 
 ---
 
 ## 🏛️ Arsitektur Sistem
 
 ### 1. Pola Utama: Modular Monolith Architecture
-* **Single Deployable Unit**: Seluruh sistem dikompilasi menjadi satu binary executable mandiri, mengeliminasi overhead jaringan internal dan kompleksitas orkestrasi microservices (RAM < 50 MB pada beban standar).
+* **Single Deployable Unit**: Seluruh sistem dikompilasi menjadi satu binary executable mandiri (`redirector.exe`), mengeliminasi overhead jaringan internal dan kompleksitas orkestrasi microservices (RAM < 50 MB pada beban standar).
 * **Domain Encapsulation**: Kode diorganisasikan per domain bisnis terpisah pada direktori `app/modules/` (`auth`, `link`, `redirect`, `analytics`). Tiap modul memiliki batas tanggung jawab (*bounded context*) yang terisolasi.
 
 ### 2. Pola Internal Modul: Clean Layered Architecture (N-Tier)
-Setiap modul mengadopsi prinsip pemisahan tanggung jawab (*Separation of Concerns*) dengan struktur 5 lapisan:
+Setiap modul mengadopsi prinsip pemisahan tanggung jawab (*Separation of Concerns*) dengan 5 lapisan:
 
 ```
 [ HTTP Request dari Client / Browser ]
@@ -37,40 +58,6 @@ Setiap modul mengadopsi prinsip pemisahan tanggung jawab (*Separation of Concern
     └───────────────────────────┘
 ```
 
-* **route.go**: Mendaftarkan URL endpoint dan menghubungkan middleware ke route group Echo.
-* **handler.go**: Memvalidasi request masuk, memanggil service, dan mengembalikan HTTP response / redirect.
-* **service.go**: Menangani aturan bisnis murni tanpa keterikatan erat pada framework HTTP.
-* **repository.go**: Mengabstraksi kueri basis data GORM, transaksi, dan agregasi data.
-* **model.go**: Mendefinisikan struktur tabel relasional, foreign key, dan schema mapping.
-* **redis.go**: Menyediakan strategi cache berkecepatan tinggi dan antrean event berbasis Redis.
-
----
-
-## 🚀 Alur Kerja Ultra-Fast Redirect (<10 ms) & Click Collector
-
-```
-Browser Request (GET /:code)
-       │
-       ▼
-[Echo HTTP Handler] ───────────────► Ekstrak IP, Referer, User-Agent, Lokasi
-       │
-       ▼
-[Redis Cache Check] ──(Hit: <1ms)───► [302 Redirect dikirim ke User]
-       │                                       │
-       │ (Cache Miss)                          ▼
-       ▼                             [Async Goroutine: Push Click Event ke Redis List]
-[DB Fallback (GORM)]                                   │
-       │                                               ▼
-       └──► [Simpan ke Redis Cache (TTL 24h)]    [Background Worker: Batch Drain (100 item/1s)]
-                                                       │
-                                                       ▼
-                                                 [Bulk Insert ke Database Clicks Table]
-```
-
-1. **Ultra-Fast Redirect Path**: Request `GET /:code` langsung membaca key `link:{code}` di Redis (waktu respon sub-milidetik). Browser menerima HTTP 302 Found seketika (<10 ms).
-2. **Non-Blocking Click Collector**: Data klik (IP, browser, OS, device, referrer, geo) di-*serialize* dan di-*push* ke antrean Redis (`queue:clicks`) dalam goroutine terisolasi tanpa memblokir HTTP redirect.
-3. **Batch Collector Worker**: Worker latar belakang mengambil event klik dalam *batch* (100 event atau per 1 detik) dan mengeksekusi *bulk insert* ke tabel relasional serta meng-update agregat klik secara efisien.
-
 ---
 
 ## 📂 Struktur Direktori
@@ -78,28 +65,29 @@ Browser Request (GET /:code)
 ```text
 ├── app/
 │   └── modules/
-│       ├── auth/             # Modul Otentikasi & Akun Pengguna
+│       ├── auth/              # Modul Otentikasi & Akun Pengguna (JWT)
 │       │   ├── handler.go
 │       │   ├── model.go
 │       │   ├── redis.go
 │       │   ├── repository.go
 │       │   ├── route.go
 │       │   └── service.go
-│       ├── link/             # Modul Manajemen Short Link (CRUD & Cache Sync)
+│       ├── link/              # Modul Manajemen Link & QR Generator
 │       │   ├── handler.go
 │       │   ├── model.go
 │       │   ├── redis.go
 │       │   ├── repository.go
 │       │   ├── route.go
 │       │   └── service.go
-│       ├── redirect/         # Modul Ultra-Fast Redirector & Click Collector
+│       ├── redirect/          # Ultra-Fast Redirector, UTM Forwarder & Protection
 │       │   ├── handler.go
 │       │   ├── model.go
 │       │   ├── redis.go
 │       │   ├── repository.go
 │       │   ├── route.go
-│       │   └── service.go
-│       └── analytics/        # Modul Background Worker & Statistik Klik
+│       │   ├── service.go
+│       │   └── service_test.go
+│       └── analytics/         # Background Worker & Statistik Klik
 │           ├── handler.go
 │           ├── model.go
 │           ├── redis.go
@@ -108,19 +96,19 @@ Browser Request (GET /:code)
 │           └── service.go
 ├── cmd/
 │   └── api/
-│       └── main.go           # Single Binary Entrypoint & DI Bootstrap
+│       └── main.go            # Monolith Entrypoint & DI Wiring
 ├── common/
-│   ├── errors/               # Standardized Error Definitions
-│   ├── middleware/           # JWT, CORS, High-Performance Logger
-│   └── utils/                # Base62 Generator, Real IP, UserAgent Parser
+│   ├── errors/                # Standardized HTTP Errors
+│   ├── middleware/            # JWT, CORS, Logger, Redis Sliding-Window RateLimiter
+│   └── utils/                 # Base62 Generator, IP Resolver, UserAgent Parser
 ├── config/
-│   ├── config.go             # App, DB, Redis, Worker Configurations
-│   ├── database.go           # GORM Postgres/SQLite Connection Pooling
-│   ├── env.go                # Env Loader & Helpers
-│   └── redis.go              # Go-Redis Client & Connection Pool
+│   ├── config.go              # App, DB, Redis, Worker Configurations
+│   ├── database.go            # GORM Postgres/SQLite Connection Pooling
+│   ├── env.go                 # Env Loader & Helpers
+│   └── redis.go               # Go-Redis Client & Connection Pool
 ├── docs/
-│   ├── docs.go               # Swagger UI Embedded Handler
-│   └── openapi.json          # OpenAPI 3.0 Specification
+│   ├── docs.go                # Embedded Swagger UI
+│   └── openapi.json           # OpenAPI 3.0 Specification
 ├── .dockerignore
 ├── .editorconfig
 ├── .env.example
@@ -135,56 +123,55 @@ Browser Request (GET /:code)
 
 ---
 
-## ⚙️ Persyaratan Sistem
+## 🛠️ Panduan Menjalankan
 
-* **Go**: Versi 1.24+ (atau versi Go terbaru yang terpasang)
-* **Redis**: Versi 6.2+ (untuk *in-memory cache* dan *queue*)
-* **Database**: SQLite (default lokal) atau PostgreSQL (production)
-
----
-
-## 🛠️ Panduan Instalasi & Menjalankan
-
-### 1. Salin Environment
+### 1. Konfigurasi Lingkungan
+Salin file template `.env.example` menjadi `.env`:
 ```bash
 cp .env.example .env
 ```
 
-### 2. Jalankan Server Secara Langsung
+### 2. Menjalankan Server
 ```bash
 go run ./cmd/api
 ```
 
-### 3. Build Single Executable Binary
+### 3. Menjalankan Unit Test
+```bash
+go test -v ./...
+```
+
+### 4. Build Single Executable Binary
 ```bash
 go build -ldflags="-s -w" -o redirector.exe ./cmd/api
 ```
 
-### 4. Menggunakan Docker
-```bash
-docker build -t redirector:latest .
-docker run -p 8080:8080 --env-file .env redirector:latest
-```
+### 5. Swagger UI
+Akses dokumentasi interaktif di: `http://localhost:8080/swagger/index.html`
 
 ---
 
-## 📡 Daftar Endpoint API
+## 📡 Panduan Penggunaan Fitur Baru
 
-### 1. Ultra-Fast Redirect (Publik)
-* `GET /:code` -> Redirect langsung ke tujuan target (HTTP 302 Found)
-* `GET /r/:code` -> Alternatif endpoint redirect langsung
+### A. Membuat Link dengan Proteksi Password & Batas Klik
+`POST /api/v1/links`
+```json
+{
+  "original_url": "https://company.internal/secret-report",
+  "custom_code": "laporan-q3",
+  "password": "PIN_RAHASIA_123",
+  "max_clicks": 50,
+  "title": "Laporan Rahasia Q3"
+}
+```
 
-### 2. Autentikasi (`/api/v1/auth`)
-* `POST /api/v1/auth/register` -> Mendaftar pengguna baru
-* `POST /api/v1/auth/login` -> Login & peroleh JWT token
-* `GET /api/v1/auth/me` -> Info profil (Wajib Bearer Token)
+### B. Mengunduh QR Code Shortlink
+`GET /api/v1/links/qr/laporan-q3?size=300`
+* Mengembalikan file binary `image/png` yang siap dipajang di poster atau media sosial.
 
-### 3. Manajemen Short Link (`/api/v1/links`)
-* `POST /api/v1/links` -> Buat tautan pendek baru (Auto/Custom Alias, TTL)
-* `GET /api/v1/links` -> Daftar tautan pengguna (Paginated)
-* `GET /api/v1/links/:id` -> Detail tautan
-* `PUT /api/v1/links/:id` -> Update tautan & sinkronisasi cache
-* `DELETE /api/v1/links/:id` -> Hapus tautan & hapus cache
-
-### 4. Analitik & Koleksi Klik (`/api/v1/analytics`)
-* `GET /api/v1/analytics/:code` -> Ringkasan klik, browser, OS, perangkat, negara, referrer, dan grafik harian
+### C. Redirect dengan UTM Parameter Forwarding
+Kunjungan ke:
+`http://localhost:8080/laporan-q3?utm_source=telegram&utm_campaign=launch`
+Akan secara otomatis diarahkan ke:
+`https://company.internal/secret-report?utm_source=telegram&utm_campaign=launch`
+Semua parameter UTM tetap utuh dan ikut tercatat di tabel log telemetri analitik!

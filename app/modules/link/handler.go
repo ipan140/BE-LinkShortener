@@ -3,6 +3,7 @@ package link
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	appErrors "link-shortener/common/errors"
@@ -123,4 +124,25 @@ func (h *Handler) Delete(c echo.Context) error {
 	}
 
 	return utils.JSONSuccess(c, http.StatusOK, "link deleted successfully", nil)
+}
+
+// QRCode generates and returns a PNG QR code for a given shortcode
+func (h *Handler) QRCode(c echo.Context) error {
+	code := strings.TrimSpace(c.Param("code"))
+	if code == "" {
+		return utils.JSONError(c, appErrors.BadRequest("missing shortcode parameter", nil))
+	}
+
+	size, _ := strconv.Atoi(c.QueryParam("size"))
+	if size <= 0 {
+		size = 256
+	}
+
+	pngBytes, err := h.service.GenerateQRCode(c.Request().Context(), code, size)
+	if err != nil {
+		return utils.JSONError(c, err)
+	}
+
+	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+	return c.Blob(http.StatusOK, "image/png", pngBytes)
 }

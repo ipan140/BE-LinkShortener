@@ -26,16 +26,25 @@ func NewRedisCache(client *redis.Client) RedisCache {
 }
 
 func (r *redisCache) SetLink(ctx context.Context, code, originalURL string, ttl time.Duration) error {
+	if r.client == nil {
+		return nil
+	}
 	key := fmt.Sprintf("link:%s", code)
 	return r.client.Set(ctx, key, originalURL, ttl).Err()
 }
 
 func (r *redisCache) GetLink(ctx context.Context, code string) (string, error) {
+	if r.client == nil {
+		return "", redis.Nil
+	}
 	key := fmt.Sprintf("link:%s", code)
 	return r.client.Get(ctx, key).Result()
 }
 
 func (r *redisCache) DeleteLink(ctx context.Context, code string) error {
+	if r.client == nil {
+		return nil
+	}
 	pipe := r.client.Pipeline()
 	pipe.Del(ctx, fmt.Sprintf("link:%s", code))
 	pipe.Del(ctx, fmt.Sprintf("link_meta:%s", code))
@@ -44,6 +53,9 @@ func (r *redisCache) DeleteLink(ctx context.Context, code string) error {
 }
 
 func (r *redisCache) SetLinkMeta(ctx context.Context, code string, link *Link, ttl time.Duration) error {
+	if r.client == nil {
+		return nil
+	}
 	data, err := json.Marshal(link)
 	if err != nil {
 		return err
@@ -53,6 +65,9 @@ func (r *redisCache) SetLinkMeta(ctx context.Context, code string, link *Link, t
 }
 
 func (r *redisCache) GetLinkMeta(ctx context.Context, code string) (*Link, error) {
+	if r.client == nil {
+		return nil, redis.Nil
+	}
 	key := fmt.Sprintf("link_meta:%s", code)
 	data, err := r.client.Get(ctx, key).Bytes()
 	if err != nil {

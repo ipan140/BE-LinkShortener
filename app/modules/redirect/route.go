@@ -16,9 +16,13 @@ func NewRoute(handler *Handler) *Route {
 
 // RegisterRoutes registers top-level redirect paths for ultra-low latency routing
 func (r *Route) RegisterRoutes(e *echo.Echo) {
-	// Root level: /:code (e.g. https://domain.com/abc12)
+	// Root level: /:code
 	e.GET("/:code", r.handler.Redirect)
+	e.HEAD("/:code", r.handler.Redirect)
+	e.POST("/:code", r.handler.Redirect)
 
-	// Explicit prefix: /r/:code (e.g. https://domain.com/r/abc12)
+	// Explicit prefix: /r/:code
 	e.GET("/r/:code", r.handler.Redirect)
+	e.HEAD("/r/:code", r.handler.Redirect)
+	e.POST("/r/:code", r.handler.Redirect)
 }
