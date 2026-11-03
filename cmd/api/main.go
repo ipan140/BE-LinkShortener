@@ -20,6 +20,8 @@ import (
 	"link-shortener/common/middleware"
 	"link-shortener/config"
 	"link-shortener/docs"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -93,6 +95,10 @@ func main() {
 	e.Use(echoMiddleware.Recover())
 	e.Use(middleware.CORS())
 	e.Use(middleware.RequestLogger())
+	e.Use(middleware.PrometheusMetrics())
+
+	// Prometheus Metrics Endpoint for Grafana monitoring
+	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
 	// Health check endpoint
 	e.GET("/health", func(c echo.Context) error {

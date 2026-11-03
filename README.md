@@ -9,31 +9,34 @@ Backend performa ultra-tinggi untuk link shortener yang mengarahkan klik ke targ
 1. **Ultra-Fast Redirector (<10 ms Target)**:
    * Query in-memory cache langsung dari Redis (`link:{code}`) dengan latensi sub-milidetik.
    * Auto-fallback ke database PostgreSQL GORM jika terjadi cache miss, sekaligus melakukan *cache warming* (TTL 24 jam).
-2. **🔔 Webhook Notifications (Discord, Telegram, Custom HTTP)**:
+2. **📈 Prometheus Metrics (`/metrics`) untuk Grafana**:
+   * Endpoint scraping telemetri standar industri untuk Grafana.
+   * Menyediakan metrik latensi p95/p99 (`http_request_duration_seconds` dengan bucket sub-milidetik 0.5ms, 1ms, 2ms, 5ms, 10ms SLA), `http_requests_total`, request concurrent in-flight, serta pembagian hasil redirect (`shortener_redirects_total{outcome="hit_cache|hit_db|expired|limit_reached|not_found"}`).
+3. **🔔 Webhook Notifications (Discord, Telegram, Custom HTTP)**:
    * Notifikasi otomatis ke URL Webhook saat shortlink mencapai milestone klik (10, 50, 100, 500, 1000, 5000, dst.) atau saat batas kuota `max_clicks` tercapai.
    * Format otomatis **Discord Rich Embed** dengan warna status khusus saat URL webhook berasal dari `discord.com/api/webhooks`.
-3. **📱 Smart Device-Based Routing (Deep-Linking iOS / Android)**:
+4. **📱 Smart Device-Based Routing (Deep-Linking iOS / Android)**:
    * Pengunjung dari perangkat **iOS** (iPhone/iPad) otomatis diarahkan ke `ios_url` (App Store).
    * Pengunjung dari perangkat **Android** otomatis diarahkan ke `android_url` (Google Play Store).
    * Pengunjung Desktop/Web diarahkan ke `original_url`.
-4. **🌐 Social Media Rich Previews (OpenGraph & Twitter Cards)**:
+5. **🌐 Social Media Rich Previews (OpenGraph & Twitter Cards)**:
    * Deteksi bot media sosial (WhatsApp, Telegram, Twitter/X, Discord, Slack, Facebook).
    * Menampilkan kartu pratinjau judul, deskripsi, dan banner gambar (`image_url`) sebelum diklik.
-5. **🔑 Permanent API Key Authentication (`X-API-Key`)**:
+6. **🔑 Permanent API Key Authentication (`X-API-Key`)**:
    * Pengguna mendapatkan API Key permanen (`ak_live_...`) saat mendaftar. Mendukung integrasi tanpa kedaluwarsa dengan script otomatisasi via header `X-API-Key`.
-6. **🏷️ Kategori & Tag Kampanye (`#tag`)**:
+7. **🏷️ Kategori & Tag Kampanye (`#tag`)**:
    * Mengelompokkan tautan berdasarkan tag (`tags: "marketing,promo"`), serta memfilter daftar tautan melalui `GET /api/v1/links?tag=promo`.
-7. **📊 Export Data Analitik ke CSV (`GET /api/v1/analytics/:code/export.csv`)**:
+8. **📊 Export Data Analitik ke CSV (`GET /api/v1/analytics/:code/export.csv`)**:
    * Unduh seluruh riwayat telemetri klik secara langsung dalam format spreadsheet `.csv`.
-8. **🎨 Responsive HTML Landing Pages (404, Expired, Quota Reached, Deactivated)**:
+9. **🎨 Responsive HTML Landing Pages (404, Expired, Quota Reached, Deactivated)**:
    * Kunjungan browser ke link yang kedaluwarsa/tidak ada akan disajikan halaman HTML modern bertema gelap.
-9. **🔒 Password-Protected Links**:
-   * Tautan dengan kata sandi (dienkripsi bcrypt) dan formulir PIN modern responsif.
-10. **⏱️ Max Click Limit (Self-Destruct)**:
+10. **🔒 Password-Protected Links**:
+    * Tautan dengan kata sandi (dienkripsi bcrypt) dan formulir PIN modern responsif.
+11. **⏱️ Max Click Limit (Self-Destruct)**:
     * Pembatasan kuota klik total yang otomatis menonaktifkan link saat kuota tercapai.
-11. **🛡️ Anti-Abuse Redis Sliding-Window Rate Limiter**:
+12. **🛡️ Anti-Abuse Redis Sliding-Window Rate Limiter**:
     * Perlindungan terhadap serangan DDoS dan spam bot klik menggunakan Redis Sorted Set (`ZSet`).
-12. **📷 Instant QR Code Generator**:
+13. **📷 Instant QR Code Generator**:
     * Endpoint publik `GET /qr/:code?size=256` untuk menghasilkan gambar QR Code PNG instan.
 
 ---
@@ -93,3 +96,7 @@ go build -ldflags="-s -w" -o redirector.exe ./cmd/api
 ### 4. Swagger UI Documentation
 Akses dokumentasi interaktif di:
 👉 **`http://localhost:8080/swagger/index.html`**
+
+### 5. Prometheus Telemetry
+Scrape endpoint metrik untuk Prometheus / Grafana di:
+👉 **`http://localhost:8080/metrics`**

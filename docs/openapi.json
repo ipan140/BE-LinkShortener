@@ -2,8 +2,8 @@
   "openapi": "3.0.0",
   "info": {
     "title": "Ultra-Fast Redirector & Click Collector API",
-    "version": "1.3.0",
-    "description": "High-performance modular monolith for <10ms short link redirection with Smart Device Routing, Webhook Notifications (Discord/Telegram), QR generator, UTM forwarder, password protection, max click limits, CSV export, and Redis rate limiting."
+    "version": "1.4.0",
+    "description": "High-performance modular monolith for <10ms short link redirection with Prometheus Metrics (/metrics), Smart Device Routing, Webhooks, QR generator, UTM forwarder, password protection, max click limits, CSV export, and Redis rate limiting."
   },
   "paths": {
     "/{code}": {
@@ -41,6 +41,22 @@
             "schema": { "type": "string" }
           }
         ]
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Prometheus Telemetry Metrics (p95/p99 latency, request rate, memory, redirects total for Grafana)",
+        "responses": {
+          "200": { "description": "Prometheus text-format exposition" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Server health status probe",
+        "responses": {
+          "200": { "description": "Server healthy" }
+        }
       }
     },
     "/qr/{code}": {

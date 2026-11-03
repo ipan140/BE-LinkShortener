@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 	appErrors "link-shortener/common/errors"
+	"link-shortener/common/middleware"
 )
 
 type Service interface {
@@ -35,6 +36,7 @@ func (s *service) Resolve(ctx context.Context, shortCode string, incomingQuery s
 	// 1. Fast Path: Check Redis Cache (Ultra-Fast < 1ms for non-protected, non-device-routed links)
 	cachedURL, err := s.cache.GetRedirectURL(ctx, shortCode)
 	if err == nil && cachedURL != "" {
+		middleware.RedirectsTotal.WithLabelValues("hit_cache").Inc()
 		finalURL := mergeQueryParams(cachedURL, incomingQuery)
 
 		// Asynchronously enqueue click event to Redis
@@ -57,21 +59,25 @@ func (s *service) Resolve(ctx context.Context, shortCode string, incomingQuery s
 		return "", false, appErrors.Internal("database query error")
 	}
 	if link == nil {
+		middleware.RedirectsTotal.WithLabelValues("not_found").Inc()
 		return "", false, appErrors.NotFound("short link not found")
 	}
 
 	// Check status
 	if !link.IsActive {
+		middleware.RedirectsTotal.WithLabelValues("deactivated").Inc()
 		return "", false, appErrors.BadRequest("short link is deactivated", nil)
 	}
 
 	// Check expiration date
 	if link.ExpiresAt != nil && link.ExpiresAt.Before(time.Now()) {
+		middleware.RedirectsTotal.WithLabelValues("expired").Inc()
 		return "", false, appErrors.BadRequest("short link has expired", nil)
 	}
 
 	// Check maximum click limit
 	if link.MaxClicks != nil && link.ClickCount >= *link.MaxClicks {
+		middleware.RedirectsTotal.WithLabelValues("limit_reached").Inc()
 		return "", false, appErrors.BadRequest("short link has reached its maximum click limit", nil)
 	}
 
@@ -109,6 +115,7 @@ func (s *service) Resolve(ctx context.Context, shortCode string, incomingQuery s
 	}(*click)
 
 	finalURL := mergeQueryParams(chosenDestination, incomingQuery)
+	middleware.RedirectsTotal.WithLabelValues("hit_db").Inc()
 	return finalURL, false, nil
 }
 
