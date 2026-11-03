@@ -32,6 +32,21 @@ func (h *Handler) GetAnalytics(c echo.Context) error {
 	return utils.JSONSuccess(c, http.StatusOK, "analytics retrieved successfully", summary)
 }
 
+// PublicGetAnalytics provides unauthenticated analytics inspection for the web UI
+func (h *Handler) PublicGetAnalytics(c echo.Context) error {
+	code := strings.TrimSpace(c.Param("code"))
+	if code == "" {
+		return utils.JSONError(c, appErrors.BadRequest("missing short code parameter", nil))
+	}
+
+	summary, err := h.service.GetAnalytics(c.Request().Context(), code)
+	if err != nil {
+		return utils.JSONError(c, err)
+	}
+
+	return utils.JSONSuccess(c, http.StatusOK, "analytics retrieved successfully", summary)
+}
+
 // ExportCSV exports raw click telemetry as a downloadable CSV file
 func (h *Handler) ExportCSV(c echo.Context) error {
 	code := strings.TrimSpace(c.Param("code"))

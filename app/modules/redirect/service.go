@@ -39,11 +39,13 @@ func (s *service) Resolve(ctx context.Context, shortCode string, incomingQuery s
 		middleware.RedirectsTotal.WithLabelValues("hit_cache").Inc()
 		finalURL := mergeQueryParams(cachedURL, incomingQuery)
 
-		// Asynchronously enqueue click event to Redis
+		// Asynchronously enqueue click event to Redis (with DB direct fallback)
 		go func(c ClickData) {
 			bgCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			_ = s.cache.EnqueueClick(bgCtx, &c)
+			if s.cache == nil || s.cache.EnqueueClick(bgCtx, &c) != nil {
+				_ = s.repo.RecordDirectClick(bgCtx, &c)
+			}
 		}(*click)
 
 		return finalURL, false, nil
@@ -66,18 +68,27 @@ func (s *service) Resolve(ctx context.Context, shortCode string, incomingQuery s
 	// Check status
 	if !link.IsActive {
 		middleware.RedirectsTotal.WithLabelValues("deactivated").Inc()
+		if link.FallbackURL != "" {
+			return mergeQueryParams(link.FallbackURL, incomingQuery), false, nil
+		}
 		return "", false, appErrors.BadRequest("short link is deactivated", nil)
 	}
 
 	// Check expiration date
 	if link.ExpiresAt != nil && link.ExpiresAt.Before(time.Now()) {
 		middleware.RedirectsTotal.WithLabelValues("expired").Inc()
+		if link.FallbackURL != "" {
+			return mergeQueryParams(link.FallbackURL, incomingQuery), false, nil
+		}
 		return "", false, appErrors.BadRequest("short link has expired", nil)
 	}
 
 	// Check maximum click limit
 	if link.MaxClicks != nil && link.ClickCount >= *link.MaxClicks {
 		middleware.RedirectsTotal.WithLabelValues("limit_reached").Inc()
+		if link.FallbackURL != "" {
+			return mergeQueryParams(link.FallbackURL, incomingQuery), false, nil
+		}
 		return "", false, appErrors.BadRequest("short link has reached its maximum click limit", nil)
 	}
 
@@ -92,26 +103,35 @@ func (s *service) Resolve(ctx context.Context, shortCode string, incomingQuery s
 		}
 	}
 
-	// 3. Smart Device Routing (iOS / Android / Default)
+	// 3. Smart Geo-Location & Device Routing
 	chosenDestination := link.OriginalURL
-	osLower := strings.ToLower(click.OS)
-	if (strings.Contains(osLower, "ios") || strings.Contains(osLower, "ipad")) && link.IOSURL != "" {
-		chosenDestination = link.IOSURL
-	} else if strings.Contains(osLower, "android") && link.AndroidURL != "" {
-		chosenDestination = link.AndroidURL
+
+	// 3a. Geo-Location Targeting (Country match)
+	if link.CountryCode != "" && link.CountryURL != "" && strings.EqualFold(click.Country, link.CountryCode) {
+		chosenDestination = link.CountryURL
+	} else {
+		// 3b. Smart Device Routing (iOS / Android / Default)
+		osLower := strings.ToLower(click.OS)
+		if (strings.Contains(osLower, "ios") || strings.Contains(osLower, "ipad")) && link.IOSURL != "" {
+			chosenDestination = link.IOSURL
+		} else if strings.Contains(osLower, "android") && link.AndroidURL != "" {
+			chosenDestination = link.AndroidURL
+		}
 	}
 
 	// 4. Warm the Redis Cache ONLY if the link is purely static and unconstrained
-	canCache := !link.IsProtected && link.MaxClicks == nil && link.IOSURL == "" && link.AndroidURL == ""
+	canCache := !link.IsProtected && link.MaxClicks == nil && link.IOSURL == "" && link.AndroidURL == "" && link.CountryURL == "" && link.FallbackURL == ""
 	if canCache {
 		_ = s.cache.SetRedirectCache(ctx, shortCode, link.OriginalURL, 24*time.Hour)
 	}
 
-	// 5. Asynchronously enqueue click event
+	// 5. Asynchronously enqueue click event (with DB direct fallback)
 	go func(c ClickData) {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = s.cache.EnqueueClick(bgCtx, &c)
+		if s.cache == nil || s.cache.EnqueueClick(bgCtx, &c) != nil {
+			_ = s.repo.RecordDirectClick(bgCtx, &c)
+		}
 	}(*click)
 
 	finalURL := mergeQueryParams(chosenDestination, incomingQuery)

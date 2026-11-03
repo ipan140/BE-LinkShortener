@@ -17,6 +17,7 @@ import (
 	"link-shortener/app/modules/auth"
 	"link-shortener/app/modules/link"
 	"link-shortener/app/modules/redirect"
+	"link-shortener/app/modules/web"
 	"link-shortener/common/middleware"
 	"link-shortener/config"
 	"link-shortener/docs"
@@ -89,6 +90,10 @@ func main() {
 		go analyticsService.StartClickCollectorWorker(ctx)
 	}
 
+	// Start Background Archiver & Cleanup Worker
+	archiverWorker := link.NewArchiverWorker(db, linkCache, 1*time.Hour)
+	go archiverWorker.Start(ctx)
+
 	// 6. Setup Echo Server and Presentation Layer
 	e := echo.New()
 	e.HideBanner = true
@@ -96,6 +101,9 @@ func main() {
 	e.Use(middleware.CORS())
 	e.Use(middleware.RequestLogger())
 	e.Use(middleware.PrometheusMetrics())
+
+	// Mount Interactive Web Dashboard at "/" and "/dashboard"
+	web.RegisterDashboardRoutes(e, cfg.App.BaseURL)
 
 	// Prometheus Metrics Endpoint for Grafana monitoring
 	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))

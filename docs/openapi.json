@@ -2,13 +2,21 @@
   "openapi": "3.0.0",
   "info": {
     "title": "Ultra-Fast Redirector & Click Collector API",
-    "version": "1.4.0",
-    "description": "High-performance modular monolith for <10ms short link redirection with Prometheus Metrics (/metrics), Smart Device Routing, Webhooks, QR generator, UTM forwarder, password protection, max click limits, CSV export, and Redis rate limiting."
+    "version": "1.5.0",
+    "description": "High-performance modular monolith for <10ms short link redirection with Interactive Web UI (/), Prometheus Metrics (/metrics), Geo-Routing (country_code, country_url), Smart Device Routing (ios_url, android_url), Fallback URL, Webhooks (Discord/Slack/Telegram), QR generator, UTM forwarder, password protection, max click limits, CSV export, and background Archiver."
   },
   "paths": {
+    "/": {
+      "get": {
+        "summary": "Built-in Interactive Web Dashboard and Live Telemetry Explorer",
+        "responses": {
+          "200": { "description": "Returns interactive HTML single-page dashboard" }
+        }
+      }
+    },
     "/{code}": {
       "get": {
-        "summary": "Ultra-fast redirection (<10ms) with Smart Device Routing (iOS/Android) & UTM forwarding",
+        "summary": "Ultra-fast redirection (<10ms) with Geo & Device Routing (iOS/Android/Country), Fallback URL, & UTM forwarding",
         "parameters": [
           {
             "name": "code",
@@ -25,7 +33,7 @@
           }
         ],
         "responses": {
-          "302": { "description": "Redirects to destination URL with forwarded query params" },
+          "302": { "description": "Redirects to destination URL (or fallback URL if expired/limit reached)" },
           "401": { "description": "Password required or invalid password" },
           "404": { "description": "Short code not found" },
           "429": { "description": "Rate limit exceeded" }
@@ -81,6 +89,38 @@
         }
       }
     },
+    "/api/v1/links/public": {
+      "post": {
+        "summary": "Create shortlink publicly without authentication (Used by web dashboard)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["original_url"],
+                "properties": {
+                  "original_url": { "type": "string", "example": "https://example.com" },
+                  "custom_code": { "type": "string", "example": "my-promo" },
+                  "country_code": { "type": "string", "example": "ID" },
+                  "country_url": { "type": "string", "example": "https://example.com/id" },
+                  "ios_url": { "type": "string" },
+                  "android_url": { "type": "string" },
+                  "fallback_url": { "type": "string" },
+                  "webhook_url": { "type": "string" },
+                  "max_clicks": { "type": "integer" },
+                  "expires_at": { "type": "string", "format": "date-time" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Short link created successfully" }
+        }
+      }
+    },
     "/api/v1/auth/register": {
       "post": {
         "summary": "Register a new user account (Generates permanent API Key)"
@@ -98,15 +138,26 @@
     },
     "/api/v1/links": {
       "post": {
-        "summary": "Create short link (Supports custom alias, ios_url, android_url, webhook_url, tags, password, max_clicks, expires_at)"
+        "summary": "Create short link (Supports custom alias, ios_url, android_url, country_code, country_url, fallback_url, webhook_url, tags, password, max_clicks, expires_at)"
       },
       "get": {
         "summary": "List user's shortened links (Filterable by ?tag=...)"
       }
     },
+    "/api/v1/analytics/public/{code}": {
+      "get": {
+        "summary": "Public telemetry inspection for dashboard without API key",
+        "parameters": [
+          { "name": "code", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Aggregated summary of visits, devices, and countries" }
+        }
+      }
+    },
     "/api/v1/analytics/{code}": {
       "get": {
-        "summary": "Get click statistics and visitor demographics"
+        "summary": "Get click statistics and visitor demographics (Authenticated)"
       }
     },
     "/api/v1/analytics/{code}/export.csv": {

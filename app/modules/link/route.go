@@ -20,8 +20,9 @@ func NewRoute(handler *Handler, jwtSecret string, authService any) *Route {
 }
 
 func (r *Route) RegisterRoutes(g *echo.Group) {
-	// Public QR endpoint
+	// Public endpoints (no auth required)
 	g.GET("/links/qr/:code", r.handler.QRCode)
+	g.POST("/links/public", r.handler.PublicCreate)
 
 	// Protected endpoints (Supports both Bearer JWT and X-API-Key)
 	linkGroup := g.Group("/links", middleware.CombinedAuthMiddleware(r.jwtSecret, r.authService))

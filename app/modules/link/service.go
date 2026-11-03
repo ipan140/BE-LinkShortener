@@ -43,7 +43,7 @@ func (s *service) CreateLink(ctx context.Context, userID uint, req CreateLinkReq
 		return nil, appErrors.BadRequest("invalid URL format, must begin with http:// or https://", nil)
 	}
 
-	var iosURL, androidURL string
+	var iosURL, androidURL, countryURL, fallbackURL string
 	if req.IOSURL != "" {
 		pIOS, err := url.ParseRequestURI(strings.TrimSpace(req.IOSURL))
 		if err != nil || (pIOS.Scheme != "http" && pIOS.Scheme != "https") {
@@ -57,6 +57,20 @@ func (s *service) CreateLink(ctx context.Context, userID uint, req CreateLinkReq
 			return nil, appErrors.BadRequest("invalid Android URL format", nil)
 		}
 		androidURL = pAndroid.String()
+	}
+	if req.CountryURL != "" {
+		pCountry, err := url.ParseRequestURI(strings.TrimSpace(req.CountryURL))
+		if err != nil || (pCountry.Scheme != "http" && pCountry.Scheme != "https") {
+			return nil, appErrors.BadRequest("invalid Country URL format", nil)
+		}
+		countryURL = pCountry.String()
+	}
+	if req.FallbackURL != "" {
+		pFallback, err := url.ParseRequestURI(strings.TrimSpace(req.FallbackURL))
+		if err != nil || (pFallback.Scheme != "http" && pFallback.Scheme != "https") {
+			return nil, appErrors.BadRequest("invalid Fallback URL format", nil)
+		}
+		fallbackURL = pFallback.String()
 	}
 
 	var shortCode string
@@ -100,11 +114,16 @@ func (s *service) CreateLink(ctx context.Context, userID uint, req CreateLinkReq
 		isProtected = true
 	}
 
+	countryCode := strings.ToUpper(strings.TrimSpace(req.CountryCode))
+
 	link := &Link{
 		UserID:       userID,
 		OriginalURL:  parsedURL.String(),
 		IOSURL:       iosURL,
 		AndroidURL:   androidURL,
+		CountryCode:  countryCode,
+		CountryURL:   countryURL,
+		FallbackURL:  fallbackURL,
 		ShortCode:    shortCode,
 		Title:        req.Title,
 		Description:  req.Description,
@@ -122,8 +141,8 @@ func (s *service) CreateLink(ctx context.Context, userID uint, req CreateLinkReq
 		return nil, appErrors.Internal("failed to save link")
 	}
 
-	// Warm cache in Redis ONLY if the link is a straightforward redirect (no password, no max click limits, no device routing)
-	if !isProtected && link.MaxClicks == nil && link.IOSURL == "" && link.AndroidURL == "" {
+	// Warm cache in Redis ONLY if the link is a straightforward redirect (no password, no max click limits, no device routing, no geo routing, no fallback)
+	if !isProtected && link.MaxClicks == nil && link.IOSURL == "" && link.AndroidURL == "" && link.CountryURL == "" && link.FallbackURL == "" {
 		_ = s.cache.SetLink(ctx, shortCode, link.OriginalURL, 24*time.Hour)
 	}
 	_ = s.cache.SetLinkMeta(ctx, shortCode, link, 24*time.Hour)
@@ -172,8 +191,8 @@ func (s *service) UpdateLink(ctx context.Context, id, userID uint, req UpdateLin
 		return nil, appErrors.NotFound("link not found")
 	}
 
-	if req.OriginalURL != "" {
-		parsedURL, err := url.ParseRequestURI(strings.TrimSpace(req.OriginalURL))
+	if req.OriginalURL != nil && *req.OriginalURL != "" {
+		parsedURL, err := url.ParseRequestURI(strings.TrimSpace(*req.OriginalURL))
 		if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
 			return nil, appErrors.BadRequest("invalid URL format", nil)
 		}
@@ -199,6 +218,31 @@ func (s *service) UpdateLink(ctx context.Context, id, userID uint, req UpdateLin
 			link.AndroidURL = pAndroid.String()
 		} else {
 			link.AndroidURL = ""
+		}
+	}
+	if req.CountryCode != nil {
+		link.CountryCode = strings.ToUpper(strings.TrimSpace(*req.CountryCode))
+	}
+	if req.CountryURL != nil {
+		if *req.CountryURL != "" {
+			pCountry, err := url.ParseRequestURI(strings.TrimSpace(*req.CountryURL))
+			if err != nil || (pCountry.Scheme != "http" && pCountry.Scheme != "https") {
+				return nil, appErrors.BadRequest("invalid Country URL format", nil)
+			}
+			link.CountryURL = pCountry.String()
+		} else {
+			link.CountryURL = ""
+		}
+	}
+	if req.FallbackURL != nil {
+		if *req.FallbackURL != "" {
+			pFallback, err := url.ParseRequestURI(strings.TrimSpace(*req.FallbackURL))
+			if err != nil || (pFallback.Scheme != "http" && pFallback.Scheme != "https") {
+				return nil, appErrors.BadRequest("invalid Fallback URL format", nil)
+			}
+			link.FallbackURL = pFallback.String()
+		} else {
+			link.FallbackURL = ""
 		}
 	}
 	if req.Title != "" {
@@ -249,7 +293,9 @@ func (s *service) UpdateLink(ctx context.Context, id, userID uint, req UpdateLin
 		!link.IsProtected &&
 		link.MaxClicks == nil &&
 		link.IOSURL == "" &&
-		link.AndroidURL == ""
+		link.AndroidURL == "" &&
+		link.CountryURL == "" &&
+		link.FallbackURL == ""
 
 	if !canCache {
 		_ = s.cache.DeleteLink(ctx, link.ShortCode)
@@ -299,6 +345,9 @@ func (s *service) toResponse(link *Link) *LinkResponse {
 		OriginalURL: link.OriginalURL,
 		IOSURL:      link.IOSURL,
 		AndroidURL:  link.AndroidURL,
+		CountryCode: link.CountryCode,
+		CountryURL:  link.CountryURL,
+		FallbackURL: link.FallbackURL,
 		ShortCode:   link.ShortCode,
 		ShortURL:    fmt.Sprintf("%s/%s", strings.TrimRight(s.cfg.App.BaseURL, "/"), link.ShortCode),
 		Title:       link.Title,

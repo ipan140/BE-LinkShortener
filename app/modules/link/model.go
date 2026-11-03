@@ -9,16 +9,19 @@ import (
 // Link represents a shortened URL entity in the database
 type Link struct {
 	ID           uint           `gorm:"primaryKey" json:"id"`
-	UserID       uint           `gorm:"index;not null" json:"user_id"`
+	UserID       uint           `gorm:"index" json:"user_id,omitempty"`
 	OriginalURL  string         `gorm:"type:text;not null" json:"original_url"`
 	IOSURL       string         `gorm:"type:text" json:"ios_url,omitempty"`
 	AndroidURL   string         `gorm:"type:text" json:"android_url,omitempty"`
+	CountryCode  string         `gorm:"type:varchar(10);index" json:"country_code,omitempty"` // e.g. "ID", "US", "SG"
+	CountryURL   string         `gorm:"type:text" json:"country_url,omitempty"`               // Localized destination for this country
+	FallbackURL  string         `gorm:"type:text" json:"fallback_url,omitempty"`              // Fallback destination if expired / limit reached
 	ShortCode    string         `gorm:"type:varchar(50);uniqueIndex;not null" json:"short_code"`
 	Title        string         `gorm:"type:varchar(255)" json:"title"`
 	Description  string         `gorm:"type:text" json:"description"`
 	ImageURL     string         `gorm:"type:text" json:"image_url,omitempty"`
 	Tags         string         `gorm:"type:varchar(255);index" json:"tags,omitempty"`
-	WebhookURL   string         `gorm:"type:text" json:"webhook_url,omitempty"` // Discord / Telegram / Custom webhook
+	WebhookURL   string         `gorm:"type:text" json:"webhook_url,omitempty"` // Discord / Slack / Telegram / Custom webhook
 	IsActive     bool           `gorm:"default:true;index" json:"is_active"`
 	ExpiresAt    *time.Time     `gorm:"index" json:"expires_at,omitempty"`
 	MaxClicks    *int64         `json:"max_clicks,omitempty"`
@@ -39,6 +42,9 @@ type CreateLinkRequest struct {
 	OriginalURL string     `json:"original_url" validate:"required,url"`
 	IOSURL      string     `json:"ios_url,omitempty" validate:"omitempty,url"`
 	AndroidURL  string     `json:"android_url,omitempty" validate:"omitempty,url"`
+	CountryCode string     `json:"country_code,omitempty" validate:"omitempty,alpha,len=2"`
+	CountryURL  string     `json:"country_url,omitempty" validate:"omitempty,url"`
+	FallbackURL string     `json:"fallback_url,omitempty" validate:"omitempty,url"`
 	CustomCode  string     `json:"custom_code,omitempty" validate:"omitempty,alphanum,min=3,max=30"`
 	Title       string     `json:"title,omitempty"`
 	Description string     `json:"description,omitempty"`
@@ -51,9 +57,12 @@ type CreateLinkRequest struct {
 }
 
 type UpdateLinkRequest struct {
-	OriginalURL string     `json:"original_url,omitempty"`
+	OriginalURL *string    `json:"original_url,omitempty"`
 	IOSURL      *string    `json:"ios_url,omitempty"`
 	AndroidURL  *string    `json:"android_url,omitempty"`
+	CountryCode *string    `json:"country_code,omitempty"`
+	CountryURL  *string    `json:"country_url,omitempty"`
+	FallbackURL *string    `json:"fallback_url,omitempty"`
 	Title       string     `json:"title,omitempty"`
 	Description string     `json:"description,omitempty"`
 	ImageURL    *string    `json:"image_url,omitempty"`
@@ -70,6 +79,9 @@ type LinkResponse struct {
 	OriginalURL string     `json:"original_url"`
 	IOSURL      string     `json:"ios_url,omitempty"`
 	AndroidURL  string     `json:"android_url,omitempty"`
+	CountryCode string     `json:"country_code,omitempty"`
+	CountryURL  string     `json:"country_url,omitempty"`
+	FallbackURL string     `json:"fallback_url,omitempty"`
 	ShortCode   string     `json:"short_code"`
 	ShortURL    string     `json:"short_url"`
 	Title       string     `json:"title"`

@@ -16,6 +16,10 @@ func (m *mockRepo) FindActiveLink(ctx context.Context, shortCode string) (*Redir
 	return m.link, nil
 }
 
+func (m *mockRepo) RecordDirectClick(ctx context.Context, click *ClickData) error {
+	return nil
+}
+
 type mockCache struct {
 	cachedURL string
 }
@@ -145,6 +149,62 @@ func TestResolve_MaxClicks(t *testing.T) {
 	_, _, err := service.Resolve(context.Background(), "limit1", "", "", click)
 	if err == nil {
 		t.Fatalf("expected error when click limit reached, got nil")
+	}
+}
+
+func TestResolve_FallbackURL(t *testing.T) {
+	maxClicks := int64(5)
+	repo := &mockRepo{
+		link: &RedirectLink{
+			ID:          1,
+			OriginalURL: "https://target.com/original",
+			FallbackURL: "https://target.com/fallback-promo",
+			ShortCode:   "promo-expired",
+			IsActive:    true,
+			MaxClicks:   &maxClicks,
+			ClickCount:  5, // max clicks reached!
+		},
+	}
+	cache := &mockCache{}
+	service := NewService(repo, cache)
+
+	click := &ClickData{ShortCode: "promo-expired"}
+	target, requiresPassword, err := service.Resolve(context.Background(), "promo-expired", "utm_source=twitter", "", click)
+	if err != nil || requiresPassword {
+		t.Fatalf("expected smooth redirect to fallback, got err: %v", err)
+	}
+
+	if !contains(target, "fallback-promo") || !contains(target, "utm_source=twitter") {
+		t.Fatalf("expected target to contain fallback-promo and UTM params, got: %s", target)
+	}
+}
+
+func TestResolve_GeoRouting(t *testing.T) {
+	repo := &mockRepo{
+		link: &RedirectLink{
+			ID:          1,
+			OriginalURL: "https://target.com/global",
+			CountryCode: "ID",
+			CountryURL:  "https://target.com/indonesia",
+			ShortCode:   "geo-link",
+			IsActive:    true,
+		},
+	}
+	cache := &mockCache{}
+	service := NewService(repo, cache)
+
+	// Visitor from Indonesia (ID)
+	idClick := &ClickData{ShortCode: "geo-link", Country: "ID"}
+	targetID, _, err := service.Resolve(context.Background(), "geo-link", "", "", idClick)
+	if err != nil || targetID != "https://target.com/indonesia" {
+		t.Fatalf("expected Indonesian localized URL, got %s, err: %v", targetID, err)
+	}
+
+	// Visitor from United States (US)
+	usClick := &ClickData{ShortCode: "geo-link", Country: "US"}
+	targetUS, _, err := service.Resolve(context.Background(), "geo-link", "", "", usClick)
+	if err != nil || targetUS != "https://target.com/global" {
+		t.Fatalf("expected Global URL, got %s, err: %v", targetUS, err)
 	}
 }
 

@@ -37,6 +37,22 @@ func (h *Handler) Create(c echo.Context) error {
 	return utils.JSONSuccess(c, http.StatusCreated, "short link created successfully", resp)
 }
 
+// PublicCreate allows creating links from the built-in web dashboard without login
+func (h *Handler) PublicCreate(c echo.Context) error {
+	var req CreateLinkRequest
+	if err := c.Bind(&req); err != nil {
+		return utils.JSONError(c, appErrors.BadRequest("invalid request payload", err.Error()))
+	}
+
+	// Use userID 0 for public anonymous links
+	resp, err := h.service.CreateLink(c.Request().Context(), 0, req)
+	if err != nil {
+		return utils.JSONError(c, err)
+	}
+
+	return utils.JSONSuccess(c, http.StatusCreated, "short link created successfully", resp)
+}
+
 func (h *Handler) GetByID(c echo.Context) error {
 	userID, ok := c.Get("user_id").(uint)
 	if !ok {

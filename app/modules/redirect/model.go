@@ -25,6 +25,9 @@ type RedirectLink struct {
 	OriginalURL  string
 	IOSURL       string
 	AndroidURL   string
+	CountryCode  string
+	CountryURL   string
+	FallbackURL  string
 	ShortCode    string
 	Title        string
 	Description  string
