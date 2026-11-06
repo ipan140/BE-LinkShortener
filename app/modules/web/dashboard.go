@@ -2,12 +2,36 @@ package web
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/labstack/echo/v4"
 )
 
 // RegisterDashboardRoutes mounts the interactive Web Dashboard at "/" and "/dashboard"
 func RegisterDashboardRoutes(e *echo.Echo, baseURL string) {
+	feDist := "D:/FE-linkshort/dist"
+	if fi, err := os.Stat(feDist); err == nil && fi.IsDir() {
+		// Serve compiled Astro Frontend assets
+		e.Static("/_astro", filepath.Join(feDist, "_astro"))
+		e.Static("/pagefind", filepath.Join(feDist, "pagefind"))
+		e.Static("/docs", filepath.Join(feDist, "docs"))
+		if _, err := os.Stat(filepath.Join(feDist, "favicon.png")); err == nil {
+			e.File("/favicon.png", filepath.Join(feDist, "favicon.png"))
+		}
+		if _, err := os.Stat(filepath.Join(feDist, "search-index.json")); err == nil {
+			e.File("/search-index.json", filepath.Join(feDist, "search-index.json"))
+		}
+
+		// Serve index.html on root and dashboard
+		indexHandler := func(c echo.Context) error {
+			return c.File(filepath.Join(feDist, "index.html"))
+		}
+		e.GET("/", indexHandler)
+		e.GET("/dashboard", indexHandler)
+		return
+	}
+
 	handler := func(c echo.Context) error {
 		c.Response().Header().Set("Content-Type", "text/html; charset=utf-8")
 		return c.String(http.StatusOK, dashboardHTML)
